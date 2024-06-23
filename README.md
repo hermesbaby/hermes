@@ -1,2 +1,2 @@
 # hermes
-(One of) he method(s) supported by hermesbaby
+(One of) the method(s) supported by hermesbaby
