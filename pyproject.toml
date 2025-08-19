@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "hermesbaby-hermes"
+version = "0.1.0"
+description = "Hermes: the hub of the HermesBaby stack"
+authors = ["Alexander Mann-Wahrenberg <alex@example.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "hermesbaby", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.111.0"
+uvicorn = { extras = ["standard"], version = "^0.30.0" }
+
+[tool.poetry.dev-dependencies]
+pytest = "^8.3.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
