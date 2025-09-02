@@ -33,6 +33,8 @@ using **VS Code Devcontainers** or **GitHub Codespaces**.
 Inside the devcontainer, run:
 
 ```bash
+poetry install
+
 poetry run uvicorn hermesbaby.hermes.main:app --reload --host 0.0.0.0 --port 8000
 ```
 

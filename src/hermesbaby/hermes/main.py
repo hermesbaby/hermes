@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 
-app = FastAPI(title="Hermes API", version="0.1.0")
+import importlib.metadata
+
+__version__ = importlib.metadata.version("hermesbaby.hermes")
+app = FastAPI(title="Hermes API", version=__version__)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "hermes", "version": "0.1.0"}
+    return {"status": "ok", "service": "hermes", "version": __version__}
