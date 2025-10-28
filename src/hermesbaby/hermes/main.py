@@ -183,6 +183,20 @@ async def extract_archive(
         # Construct the full path by joining base directory with the requested path
         full_path = pathlib.Path(settings.base_directory) / path.lstrip('/')
 
+        # Validate that the base directory exists and is writable
+        base_path = pathlib.Path(settings.base_directory)
+        if not base_path.exists():
+            raise HTTPException(
+                status_code=500,
+                detail=f"Base directory does not exist: {settings.base_directory}. Please ensure the directory is properly mounted and accessible."
+            )
+
+        if not os.access(base_path, os.W_OK):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Base directory is not writable: {settings.base_directory}. Please check directory permissions."
+            )
+
         # Remove existing content if the path exists
         if full_path.exists():
             if full_path.is_file():
@@ -191,7 +205,13 @@ async def extract_archive(
                 shutil.rmtree(full_path)
 
         # Create the directory structure (including intermediate directories)
-        full_path.mkdir(parents=True, exist_ok=True)
+        try:
+            full_path.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Permission denied creating directory: {full_path}. Error: {str(e)}. Please check directory permissions and ensure the container has write access."
+            )
 
         # Determine appropriate file suffix for temporary file
         suffix_map = {

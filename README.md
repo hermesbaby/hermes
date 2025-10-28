@@ -112,6 +112,35 @@ Then run:
 docker-compose up -d
 ```
 
+### Systemd Service Installation (Production)
+
+For production deployments, install Hermes as a systemd service:
+
+```bash
+# Download the installation script
+curl -O https://raw.githubusercontent.com/hermesbaby/hermes/main/install-hermes-service.sh
+chmod +x install-hermes-service.sh
+
+# Run as root to install
+sudo ./install-hermes-service.sh
+```
+
+This will:
+- Create a dedicated `hermes` system user
+- Generate a secure API token
+- Set up systemd service with auto-start
+- Configure proper file permissions
+- Start and test the service
+
+**Service Management:**
+```bash
+sudo systemctl start hermes     # Start service
+sudo systemctl stop hermes      # Stop service
+sudo systemctl restart hermes   # Restart service
+sudo systemctl status hermes    # Check status
+sudo journalctl -u hermes -f    # View logs
+```
+
 ### Environment Configuration
 
 The service runs on port 8000 by default and **requires** the `HERMES_BASE_DIRECTORY` environment variable to be set.
@@ -526,6 +555,24 @@ See `LICENSE.md` for full details.
 - Response includes extraction details like archive type, filename, file size, extracted items, and total paths count
 
 If you need the old directory creation behavior, please use an earlier version of the service.
+
+## Troubleshooting
+
+### Common Issues
+
+**Permission Denied Error**: If you encounter permission errors like `{"detail":"Failed to extract archive: [Errno 13] Permission denied: '/var/www'"}`, see the [Troubleshooting Guide](TROUBLESHOOTING.md) for detailed solutions.
+
+**Quick Fix for Permission Issues**:
+```bash
+# Use volume mounting (recommended)
+docker run -d \
+  -v /var/www/html/test:/app/data \
+  -e HERMES_BASE_DIRECTORY="/app/data" \
+  -p 8000:8000 \
+  docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+```
+
+For more troubleshooting information, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ## Support & Contributing
 

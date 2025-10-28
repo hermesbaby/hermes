@@ -35,8 +35,9 @@ COPY src/ ./src/
 # Install the current project
 RUN poetry install --only-root
 
-# Create a non-root user
-RUN useradd --create-home --shell /bin/bash hermes && \
+# Create a non-root user with specific UID/GID for better host compatibility
+RUN groupadd -g 1000 hermes && \
+    useradd -u 1000 -g 1000 --create-home --shell /bin/bash hermes && \
     chown -R hermes:hermes /app
 USER hermes
 
