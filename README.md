@@ -1,22 +1,24 @@
 # HermesBaby-Hermes
 
-**Hermes** is a lightweight FastAPI service that acts as a universal PUT endpoint for tar.gz file extraction. It accepts PUT requests with tar.gz files to any endpoint path, creates the corresponding directory structure on the local filesystem, and extracts the archive contents with their internal directory structure, making it useful for dynamic file system provisioning, deployment, and development workflows.
+**Hermes** is a lightweight FastAPI service that acts as a universal PUT endpoint for archive file extraction. It accepts PUT requests with archive files (tar.gz, ZIP, 7z) to any endpoint path, creates the corresponding directory structure on the local filesystem, and extracts the archive contents with their internal directory structure, making it useful for dynamic file system provisioning, deployment, and development workflows.
 
 ## What This Docker Image Does
 
 The Hermes Docker image provides:
 
-- **Universal PUT Tar.gz Extraction Service**: Accepts PUT requests with tar.gz files to any endpoint path, creates directory structure, and extracts archive contents
+- **Universal PUT Archive Extraction Service**: Accepts PUT requests with archive files (tar.gz, ZIP, 7z) to any endpoint path, creates directory structure, and extracts archive contents
+- **Multiple Archive Format Support**: Supports tar.gz, .tgz, ZIP, and 7z archive formats
 - **Health Check Endpoint**: Provides a `/health` endpoint for monitoring and container orchestration
 - **FastAPI-based**: Built on FastAPI with automatic API documentation
 - **Production Ready**: Includes proper security configuration, non-root user, and health checks
 
 ### Key Features
 
-- 🌐 **Catch-all PUT endpoints**: Any PUT request with tar.gz file to `/path/to/anything` creates directory structure and extracts archive contents
-- 📁 **Filesystem Integration**: Creates actual directories on the local filesystem under a configured base directory and extracts tar.gz contents
+- 🌐 **Catch-all PUT endpoints**: Any PUT request with archive file to `/path/to/anything` creates directory structure and extracts archive contents
+- � **Multiple Archive Formats**: Supports tar.gz, .tgz, ZIP (.zip), and 7z (.7z) archive formats
+- �📁 **Filesystem Integration**: Creates actual directories on the local filesystem under a configured base directory and extracts archive contents
 - 🔄 **Content Replacement**: Automatically removes existing content at target path before extraction to ensure clean deployment
-- 🔐 **Security Validation**: Validates file types (tar.gz/tgz only) and rejects archives with unsafe paths (absolute paths, `..` traversal)
+- 🔐 **Security Validation**: Validates file types and rejects archives with unsafe paths (absolute paths, `..` traversal)
 - 🏥 **Built-in health checks**: `/health` endpoint returns service status and version
 - 📚 **Auto-generated docs**: OpenAPI/Swagger documentation at `/docs`
 - 🔒 **Security-focused**: Runs as non-root user with minimal attack surface
@@ -60,6 +62,16 @@ curl http://localhost:8000/health
 echo "Hello World" > test.txt
 tar -czf test.tar.gz test.txt
 curl -X PUT -F "file=@test.tar.gz" http://localhost:8000/test/upload
+
+# Test with a ZIP file upload
+echo "Hello from ZIP" > test.txt
+zip test.zip test.txt
+curl -X PUT -F "file=@test.zip" http://localhost:8000/test/upload-zip
+
+# Test with a 7z file upload (requires 7z command-line tool)
+echo "Hello from 7z" > test.txt
+7z a test.7z test.txt
+curl -X PUT -F "file=@test.7z" http://localhost:8000/test/upload-7z
 
 # If token is configured, use authentication:
 # curl -X PUT -F "file=@test.tar.gz" -H "Authorization: Bearer your-token" http://localhost:8000/test/upload
@@ -155,7 +167,7 @@ GET /health
 }
 ```
 
-### Universal PUT Tar.gz Extraction
+### Universal PUT Archive Extraction
 
 ```http
 PUT /{any_path}
@@ -164,6 +176,11 @@ Authorization: Bearer <token>  # Required if HERMES_API_TOKEN is set
 # OR
 X-API-Token: <token>           # Alternative token header
 ```
+
+**Supported Archive Formats:**
+- **tar.gz** / **.tgz**: Standard tar.gz compressed archives
+- **ZIP** / **.zip**: Standard ZIP compressed archives  
+- **7z** / **.7z**: 7-Zip compressed archives
 
 #### Authentication
 
@@ -177,30 +194,32 @@ If both headers are provided, the Bearer token takes precedence. The health endp
 **Examples:**
 
 ```bash
-# Simple tar.gz upload - creates directory and extracts contents (no token required)
+# tar.gz upload - creates directory and extracts contents (no token required)
 curl -X PUT -F "file=@my-app.tar.gz" http://localhost:8000/applications/myapp
 
-# With Bearer token authentication
-curl -X PUT -F "file=@my-app.tar.gz" \
+# ZIP upload with Bearer token authentication
+curl -X PUT -F "file=@my-app.zip" \
   -H "Authorization: Bearer your-secret-token" \
-  http://localhost:8000/applications/myapp
+  http://localhost:8000/applications/myapp-zip
 
-# With X-API-Token header authentication
-curl -X PUT -F "file=@my-app.tar.gz" \
+# 7z upload with X-API-Token header authentication
+curl -X PUT -F "file=@my-app.7z" \
   -H "X-API-Token: your-secret-token" \
-  http://localhost:8000/applications/myapp
+  http://localhost:8000/applications/myapp-7z
 # Returns: {
-#   "endpoint": "/applications/myapp", 
+#   "endpoint": "/applications/myapp-7z", 
 #   "method": "PUT", 
-#   "created_path": "/app/data/applications/myapp",
+#   "created_path": "/app/data/applications/myapp-7z",
 #   "status": "extracted",
-#   "filename": "my-app.tar.gz",
+#   "archive_type": "7z",
+#   "filename": "my-app.7z",
 #   "file_size": 1234,
-#   "extracted_items": ["src", "config", "README.md"]
+#   "extracted_items": ["src", "config", "README.md"],
+#   "total_extracted_paths": 15
 # }
 
-# Nested path with complex archive structure (with token)
-curl -X PUT -F "file=@project.tar.gz" \
+# Nested path with complex archive structure (ZIP format)
+curl -X PUT -F "file=@project.zip" \
   -H "Authorization: Bearer your-secret-token" \
   http://localhost:8000/deployments/v1/webapp
 # Returns: {
@@ -208,13 +227,15 @@ curl -X PUT -F "file=@project.tar.gz" \
 #   "method": "PUT", 
 #   "created_path": "/app/data/deployments/v1/webapp",
 #   "status": "extracted",
-#   "filename": "project.tar.gz",
+#   "archive_type": "zip",
+#   "filename": "project.zip",
 #   "file_size": 5678,
-#   "extracted_items": ["app", "static", "templates", "requirements.txt"]
+#   "extracted_items": ["app", "static", "templates", "requirements.txt"],
+#   "total_extracted_paths": 25
 # }
 
-# Root path extraction (with X-API-Token header)
-curl -X PUT -F "file=@archive.tar.gz" \
+# Root path extraction (7z format with X-API-Token header)
+curl -X PUT -F "file=@archive.7z" \
   -H "X-API-Token: your-secret-token" \
   http://localhost:8000/
 # Returns: {
@@ -222,23 +243,28 @@ curl -X PUT -F "file=@archive.tar.gz" \
 #   "method": "PUT", 
 #   "created_path": "/app/data",
 #   "status": "extracted",
-#   "filename": "archive.tar.gz",
+#   "archive_type": "7z",
+#   "filename": "archive.7z",
 #   "file_size": 9012,
-#   "extracted_items": ["data", "logs", "config.json"]
+#   "extracted_items": ["data", "logs", "config.json"],
+#   "total_extracted_paths": 30
 # }
 
-# .tgz files are also supported (no token example)
-curl -X PUT -F "file=@backup.tgz" http://localhost:8000/backups/daily
+# All supported formats (.tar.gz, .tgz, .zip, .7z)
+curl -X PUT -F "file=@backup.tgz" http://localhost:8000/backups/daily-tgz
+curl -X PUT -F "file=@backup.zip" http://localhost:8000/backups/daily-zip
+curl -X PUT -F "file=@backup.7z" http://localhost:8000/backups/daily-7z
 ```
 
 **Extraction Details:**
 
 - **Base Directory**: All directories are created under the configured `HERMES_BASE_DIRECTORY` environment variable
 - **Content Replacement**: Existing content at the target path is completely removed before extraction
-- **Archive Structure Preserved**: Internal directory structure of the tar.gz is maintained after extraction
-- **File Type Validation**: Only `.tar.gz` and `.tgz` files are accepted
-- **Security Filtering**: Archives with absolute paths (`/etc/passwd`) or directory traversal (`../`) are rejected
+- **Archive Structure Preserved**: Internal directory structure of all archive formats is maintained after extraction
+- **File Type Validation**: Supports `.tar.gz`, `.tgz`, `.zip`, and `.7z` archive formats
+- **Security Filtering**: Archives with absolute paths (`/etc/passwd`) or directory traversal (`../`) are rejected for all formats
 - **Automatic Cleanup**: Temporary files are automatically cleaned up after extraction
+- **Response Enhancement**: Returns archive type, total extracted paths count, and other metadata
 
 ### API Documentation
 
@@ -249,14 +275,26 @@ curl -X PUT -F "file=@backup.tgz" http://localhost:8000/backups/daily
 ## Use Cases
 
 ### Application Deployment
-Perfect for deploying packaged applications with their complete directory structure:
+Perfect for deploying packaged applications with their complete directory structure using any supported archive format:
 
 ```bash
-# Deploy a web application with all its assets (secured with token)
+# Deploy a web application with all its assets (tar.gz format, secured with token)
 curl -X PUT -F "file=@webapp-v2.1.tar.gz" \
   -H "Authorization: Bearer $HERMES_API_TOKEN" \
   http://localhost:8000/deployments/webapp/v2.1
-# Extracts: $HERMES_BASE_DIRECTORY/deployments/webapp/v2.1/
+
+# Deploy using ZIP format
+curl -X PUT -F "file=@webapp-v2.1.zip" \
+  -H "Authorization: Bearer $HERMES_API_TOKEN" \
+  http://localhost:8000/deployments/webapp/v2.1-zip
+
+# Deploy using 7z format for better compression
+curl -X PUT -F "file=@webapp-v2.1.7z" \
+  -H "Authorization: Bearer $HERMES_API_TOKEN" \
+  http://localhost:8000/deployments/webapp/v2.1-7z
+
+# All formats extract to the same structure:
+# $HERMES_BASE_DIRECTORY/deployments/webapp/v2.1/
 #   ├── static/css/
 #   ├── static/js/
 #   ├── templates/
@@ -265,26 +303,38 @@ curl -X PUT -F "file=@webapp-v2.1.tar.gz" \
 ```
 
 ### Configuration Management
-Deploy configuration bundles to specific environments:
+Deploy configuration bundles to specific environments using any archive format:
 
 ```bash
-# Deploy environment-specific configurations (with API token)
+# Deploy environment-specific configurations (various formats with API token)
 curl -X PUT -F "file=@prod-config.tar.gz" \
   -H "X-API-Token: $HERMES_API_TOKEN" \
   http://localhost:8000/config/production
-curl -X PUT -F "file=@staging-config.tar.gz" \
+
+curl -X PUT -F "file=@staging-config.zip" \
   -H "X-API-Token: $HERMES_API_TOKEN" \
   http://localhost:8000/config/staging
+
+curl -X PUT -F "file=@dev-config.7z" \
+  -H "X-API-Token: $HERMES_API_TOKEN" \
+  http://localhost:8000/config/development
 # Each creates complete configuration directory structure
 ```
 
 ### Content Publishing
-Publish website content or documentation with full directory structure:
+Publish website content or documentation with full directory structure using any archive format:
 
 ```bash
-# Publish documentation site
-curl -X PUT -F "file=@docs-site.tar.gz" http://localhost:8000/sites/documentation
-# Extracts: $HERMES_BASE_DIRECTORY/sites/documentation/
+# Publish documentation site (ZIP format for easy creation from Windows)
+curl -X PUT -F "file=@docs-site.zip" http://localhost:8000/sites/documentation
+
+# Publish using 7z for maximum compression
+curl -X PUT -F "file=@large-site.7z" http://localhost:8000/sites/large-documentation
+
+# Traditional tar.gz format
+curl -X PUT -F "file=@docs-site.tar.gz" http://localhost:8000/sites/traditional-docs
+
+# All formats extract to: $HERMES_BASE_DIRECTORY/sites/documentation/
 #   ├── index.html
 #   ├── api/
 #   ├── guides/
@@ -292,21 +342,25 @@ curl -X PUT -F "file=@docs-site.tar.gz" http://localhost:8000/sites/documentatio
 ```
 
 ### Development Workflows
-Deploy development builds with their complete project structure:
+Deploy development builds with their complete project structure using any archive format:
 
 ```bash
-# Deploy a development build for testing
-curl -X PUT -F "file=@feature-branch.tar.gz" http://localhost:8000/dev/feature-xyz
-# Creates complete development environment structure
+# Deploy a development build for testing (various formats)
+curl -X PUT -F "file=@feature-branch.tar.gz" http://localhost:8000/dev/feature-xyz-tarball
+curl -X PUT -F "file=@feature-branch.zip" http://localhost:8000/dev/feature-xyz-zip  
+curl -X PUT -F "file=@feature-branch.7z" http://localhost:8000/dev/feature-xyz-7z
+# All create complete development environment structure
 ```
 
 ### Backup Restoration
-Restore archived content to specific locations:
+Restore archived content to specific locations using any supported archive format:
 
 ```bash
-# Restore from backup archive
-curl -X PUT -F "file=@backup-2024-10-28.tar.gz" http://localhost:8000/restore/2024-10-28
-# Restores complete backed-up directory structure
+# Restore from backup archives (format flexibility)
+curl -X PUT -F "file=@backup-2024-10-28.tar.gz" http://localhost:8000/restore/2024-10-28-tarball
+curl -X PUT -F "file=@backup-2024-10-28.zip" http://localhost:8000/restore/2024-10-28-zip
+curl -X PUT -F "file=@backup-2024-10-28.7z" http://localhost:8000/restore/2024-10-28-7z
+# All restore complete backed-up directory structures
 ```
 
 ## Development
@@ -339,17 +393,31 @@ docker run -e HERMES_BASE_DIRECTORY="/app/test" -p 8000:8000 hermes:test
 
 # Run tests against the running container
 curl http://localhost:8000/health
-# Note: PUT requests require tar.gz file uploads, plain PUT requests will return 422
+# Note: PUT requests require archive file uploads, plain PUT requests will return 422
 
-# Test with actual tar.gz file (include token if configured)
+# Test with different archive formats (include token if configured)
 echo "test content" > test.txt
+
+# Test tar.gz
 tar -czf test.tar.gz test.txt
 curl -X PUT -F "file=@test.tar.gz" \
   -H "Authorization: Bearer your-token-here" \
-  http://localhost:8000/test/endpoint
+  http://localhost:8000/test/endpoint-tarball
 
-# Verify directory was created (inside container)
-docker exec <container_id> ls -la /app/test/test/endpoint/
+# Test ZIP
+zip test.zip test.txt
+curl -X PUT -F "file=@test.zip" \
+  -H "Authorization: Bearer your-token-here" \
+  http://localhost:8000/test/endpoint-zip
+
+# Test 7z (if 7z command is available)
+7z a test.7z test.txt
+curl -X PUT -F "file=@test.7z" \
+  -H "Authorization: Bearer your-token-here" \
+  http://localhost:8000/test/endpoint-7z
+
+# Verify directories were created (inside container)
+docker exec <container_id> ls -la /app/test/test/endpoint-*/
 ```
 
 ## Configuration
@@ -360,8 +428,8 @@ docker exec <container_id> ls -la /app/test/test/endpoint/
 - **Directory Permissions**: Created with default permissions (755)
 - **Path Handling**: Safely handles nested paths, special characters, and edge cases
 - **Content Replacement**: Existing content is completely removed before new extraction
-- **Archive Validation**: Only tar.gz and .tgz files accepted, with security path validation
-- **Structure Preservation**: Complete internal directory structure of archives is maintained
+- **Archive Validation**: tar.gz, .tgz, ZIP, and 7z files accepted, with security path validation for all formats
+- **Structure Preservation**: Complete internal directory structure of all archive formats is maintained
 
 ### Environment Variables
 
@@ -423,7 +491,7 @@ See `LICENSE.md` for full details.
 
 ## Migration from Directory Creation Service
 
-**⚠️ Breaking Change**: This version changes the behavior from simple directory creation to tar.gz file extraction.
+**⚠️ Breaking Change**: This version changes the behavior from simple directory creation to archive file extraction.
 
 **Previous behavior** (directory creation):
 ```json
@@ -435,24 +503,27 @@ See `LICENSE.md` for full details.
 }
 ```
 
-**New behavior** (tar.gz extraction):
+**New behavior** (archive extraction):
 ```json
 {
   "endpoint": "/users",
   "method": "PUT", 
   "created_path": "$HERMES_BASE_DIRECTORY/users",
   "status": "extracted",
-  "filename": "archive.tar.gz",
+  "archive_type": "zip",
+  "filename": "archive.zip",
   "file_size": 1234,
-  "extracted_items": ["file1.txt", "subdir"]
+  "extracted_items": ["file1.txt", "subdir"],
+  "total_extracted_paths": 5
 }
 ```
 
 **Key Changes:**
-- PUT requests now require a tar.gz file upload via `multipart/form-data`
-- The service extracts the archive contents to the target path
+- PUT requests now require an archive file upload (tar.gz, ZIP, or 7z) via `multipart/form-data`
+- The service extracts archive contents to the target path
+- Supports multiple archive formats: tar.gz, .tgz, ZIP, and 7z
 - Existing content at the target path is removed before extraction
-- Response includes extraction details like filename, file size, and extracted items
+- Response includes extraction details like archive type, filename, file size, extracted items, and total paths count
 
 If you need the old directory creation behavior, please use an earlier version of the service.
 

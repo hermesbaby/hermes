@@ -3,6 +3,7 @@ import os
 import pathlib
 import tempfile
 import tarfile
+import zipfile
 import io
 import shutil
 import subprocess
@@ -10,6 +11,7 @@ import sys
 import importlib
 from unittest.mock import patch
 from fastapi.testclient import TestClient
+import py7zr
 
 # Test configuration
 TEST_BASE_DIRECTORY = "/tmp/hermes_test"
@@ -43,6 +45,49 @@ def create_test_tarball(files_dict):
 
     tar_buffer.seek(0)
     return tar_buffer.getvalue()
+
+
+def create_test_zip(files_dict):
+    """Create a test ZIP file with specified files and content"""
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        for filename, content in files_dict.items():
+            # Convert content to bytes if it's a string
+            content_bytes = content.encode(
+                'utf-8') if isinstance(content, str) else content
+            # Add file to zip
+            zip_file.writestr(filename, content_bytes)
+
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+
+def create_test_7z(files_dict):
+    """Create a test 7z file with specified files and content"""
+    # Create a temporary directory to hold files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = pathlib.Path(temp_dir)
+
+        # Create files in the temporary directory
+        for filename, content in files_dict.items():
+            file_path = temp_path / filename
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            content_bytes = content.encode(
+                'utf-8') if isinstance(content, str) else content
+            file_path.write_bytes(content_bytes)
+
+        # Create 7z archive in memory
+        archive_buffer = io.BytesIO()
+
+        with py7zr.SevenZipFile(archive_buffer, 'w') as archive:
+            for filename in files_dict.keys():
+                file_path = temp_path / filename
+                archive.write(file_path, filename)
+
+        archive_buffer.seek(0)
+        return archive_buffer.getvalue()
 
 
 class TestConfiguration:
@@ -113,8 +158,8 @@ class TestHealthEndpoint:
         assert isinstance(data["version"], str)
 
 
-class TestPutTarballEndpoints:
-    """Test PUT endpoints that extract tar.gz files"""
+class TestPutArchiveEndpoints:
+    """Test PUT endpoints that extract archive files (tar.gz, zip, 7z)"""
 
     def test_put_simple_tarball(self):
         """Test PUT request with a simple tar.gz file"""
@@ -134,15 +179,85 @@ class TestPutTarballEndpoints:
         assert data["method"] == "PUT"
         assert "created_path" in data
         assert data["status"] == "extracted"
+        assert data["archive_type"] == "tar.gz"
         assert data["filename"] == "test.tar.gz"
         assert "extracted_items" in data
         assert "test.txt" in data["extracted_items"]
+        assert "total_extracted_paths" in data
 
         # Verify the file was actually extracted
         created_path = pathlib.Path(data["created_path"])
         extracted_file = created_path / "test.txt"
         assert extracted_file.exists()
         assert extracted_file.read_text() == "Hello, World!"
+
+        # Clean up
+        if created_path.exists():
+            shutil.rmtree(created_path)
+
+    def test_put_simple_zip(self):
+        """Test PUT request with a simple ZIP file"""
+        # Create test ZIP with a simple file
+        test_files = {
+            "test.txt": "Hello from ZIP!"
+        }
+        zip_content = create_test_zip(test_files)
+
+        files = {"file": ("test.zip", io.BytesIO(
+            zip_content), "application/zip")}
+        response = client.put("/test-zip", files=files)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["endpoint"] == "/test-zip"
+        assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "extracted"
+        assert data["archive_type"] == "zip"
+        assert data["filename"] == "test.zip"
+        assert "extracted_items" in data
+        assert "test.txt" in data["extracted_items"]
+        assert "total_extracted_paths" in data
+
+        # Verify the file was actually extracted
+        created_path = pathlib.Path(data["created_path"])
+        extracted_file = created_path / "test.txt"
+        assert extracted_file.exists()
+        assert extracted_file.read_text() == "Hello from ZIP!"
+
+        # Clean up
+        if created_path.exists():
+            shutil.rmtree(created_path)
+
+    def test_put_simple_7z(self):
+        """Test PUT request with a simple 7z file"""
+        # Create test 7z with a simple file
+        test_files = {
+            "test.txt": "Hello from 7z!"
+        }
+        sevenz_content = create_test_7z(test_files)
+
+        files = {"file": ("test.7z", io.BytesIO(
+            sevenz_content), "application/x-7z-compressed")}
+        response = client.put("/test-7z", files=files)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["endpoint"] == "/test-7z"
+        assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "extracted"
+        assert data["archive_type"] == "7z"
+        assert data["filename"] == "test.7z"
+        assert "extracted_items" in data
+        assert "test.txt" in data["extracted_items"]
+        assert "total_extracted_paths" in data
+
+        # Verify the file was actually extracted
+        created_path = pathlib.Path(data["created_path"])
+        extracted_file = created_path / "test.txt"
+        assert extracted_file.exists()
+        assert extracted_file.read_text() == "Hello from 7z!"
 
         # Clean up
         if created_path.exists():
@@ -165,6 +280,7 @@ class TestPutTarballEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "extracted"
+        assert data["archive_type"] == "tar.gz"
         assert data["filename"] == "nested.tar.gz"
 
         # Verify nested structure was created
@@ -179,6 +295,80 @@ class TestPutTarballEndpoints:
                 "main.py").read_text() == "print('Hello from main!')"
         assert (created_path / "config" /
                 "settings.json").read_text() == '{"debug": true}'
+
+        # Clean up
+        if created_path.exists():
+            shutil.rmtree(created_path)
+
+    def test_put_nested_structure_zip(self):
+        """Test PUT request with ZIP containing nested directory structure"""
+        test_files = {
+            "app/main.py": "print('Hello from ZIP main!')",
+            "app/utils/helper.py": "def help(): pass",
+            "config/settings.json": '{"debug": true, "format": "zip"}',
+            "README.md": "# Test ZIP Project"
+        }
+        zip_content = create_test_zip(test_files)
+
+        files = {"file": ("nested.zip", io.BytesIO(
+            zip_content), "application/zip")}
+        response = client.put("/projects/zipapp", files=files)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "extracted"
+        assert data["archive_type"] == "zip"
+        assert data["filename"] == "nested.zip"
+
+        # Verify nested structure was created
+        created_path = pathlib.Path(data["created_path"])
+        assert (created_path / "app" / "main.py").exists()
+        assert (created_path / "app" / "utils" / "helper.py").exists()
+        assert (created_path / "config" / "settings.json").exists()
+        assert (created_path / "README.md").exists()
+
+        # Verify file contents
+        assert (created_path / "app" /
+                "main.py").read_text() == "print('Hello from ZIP main!')"
+        assert (created_path / "config" /
+                "settings.json").read_text() == '{"debug": true, "format": "zip"}'
+
+        # Clean up
+        if created_path.exists():
+            shutil.rmtree(created_path)
+
+    def test_put_nested_structure_7z(self):
+        """Test PUT request with 7z containing nested directory structure"""
+        test_files = {
+            "app/main.py": "print('Hello from 7z main!')",
+            "app/utils/helper.py": "def help(): pass",
+            "config/settings.json": '{"debug": true, "format": "7z"}',
+            "README.md": "# Test 7z Project"
+        }
+        sevenz_content = create_test_7z(test_files)
+
+        files = {"file": ("nested.7z", io.BytesIO(
+            sevenz_content), "application/x-7z-compressed")}
+        response = client.put("/projects/sevenzapp", files=files)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "extracted"
+        assert data["archive_type"] == "7z"
+        assert data["filename"] == "nested.7z"
+
+        # Verify nested structure was created
+        created_path = pathlib.Path(data["created_path"])
+        assert (created_path / "app" / "main.py").exists()
+        assert (created_path / "app" / "utils" / "helper.py").exists()
+        assert (created_path / "config" / "settings.json").exists()
+        assert (created_path / "README.md").exists()
+
+        # Verify file contents
+        assert (created_path / "app" /
+                "main.py").read_text() == "print('Hello from 7z main!')"
+        assert (created_path / "config" /
+                "settings.json").read_text() == '{"debug": true, "format": "7z"}'
 
         # Clean up
         if created_path.exists():
@@ -207,6 +397,7 @@ class TestPutTarballEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "extracted"
+        assert data["archive_type"] == "tar.gz"
 
         # Verify old content is gone and new content exists
         created_path = pathlib.Path(data["created_path"])
@@ -220,15 +411,18 @@ class TestPutTarballEndpoints:
             shutil.rmtree(created_path)
 
     def test_put_invalid_file_type(self):
-        """Test PUT request with non-tar.gz file returns error"""
+        """Test PUT request with unsupported file type returns error"""
         # Create a regular text file
         files = {"file": ("test.txt", io.BytesIO(
-            b"Not a tarball"), "text/plain")}
+            b"Not an archive"), "text/plain")}
         response = client.put("/invalid-test", files=files)
 
         assert response.status_code == 400
         data = response.json()
-        assert "must be a tar.gz" in data["detail"]
+        assert "supported archive format" in data["detail"]
+        assert ".tar.gz" in data["detail"]
+        assert ".zip" in data["detail"]
+        assert ".7z" in data["detail"]
 
     def test_put_tgz_extension(self):
         """Test PUT request with .tgz extension works"""
@@ -244,6 +438,7 @@ class TestPutTarballEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "extracted"
+        assert data["archive_type"] == "tar.gz"
         assert data["filename"] == "test.tgz"
 
         # Clean up
@@ -251,7 +446,7 @@ class TestPutTarballEndpoints:
         if created_path.exists():
             shutil.rmtree(created_path)
 
-    def test_put_unsafe_paths_rejected(self):
+    def test_put_unsafe_paths_rejected_tarball(self):
         """Test that tar.gz files with unsafe paths are rejected"""
         # Create tarball with unsafe path
         tar_buffer = io.BytesIO()
@@ -267,11 +462,67 @@ class TestPutTarballEndpoints:
 
         tar_buffer.seek(0)
         files = {"file": ("malicious.tar.gz", tar_buffer, "application/gzip")}
-        response = client.put("/security-test", files=files)
+        response = client.put("/security-test-tar", files=files)
 
         assert response.status_code == 400
         data = response.json()
         assert "Unsafe path" in data["detail"]
+        assert "tar.gz" in data["detail"]
+
+    def test_put_unsafe_paths_rejected_zip(self):
+        """Test that ZIP files with unsafe paths are rejected"""
+        # Create ZIP with unsafe path (directory traversal)
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, 'w') as zip_file:
+            # Try to create a file with directory traversal (unsafe)
+            zip_file.writestr("../../../etc/passwd", b"Malicious content")
+
+        zip_buffer.seek(0)
+        files = {"file": ("malicious.zip", zip_buffer, "application/zip")}
+        response = client.put("/security-test-zip", files=files)
+
+        assert response.status_code == 400
+        data = response.json()
+        assert "Unsafe path" in data["detail"]
+        assert "ZIP" in data["detail"]
+
+    def test_put_unsafe_paths_rejected_7z(self):
+        """Test that 7z files with unsafe paths are rejected"""
+        # Since py7zr already prevents creation of archives with unsafe paths,
+        # we'll create a valid 7z with a file that has directory traversal in name
+        # by using a different approach to simulate the security check
+
+        # Create test content with a directory traversal pattern
+        test_files = {
+            "../malicious.txt": "Malicious content"
+        }
+
+        # This will work because we're just using the name as a directory in our temp structure
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+
+            # Create nested structure that includes the problematic path as a directory name
+            problem_dir = temp_path / ".." / "malicious.txt"
+            problem_dir.parent.mkdir(parents=True, exist_ok=True)
+            problem_dir.write_text("Malicious content")
+
+            # Create 7z archive
+            archive_buffer = io.BytesIO()
+
+            with py7zr.SevenZipFile(archive_buffer, 'w') as archive:
+                # Add the file with the problematic relative path
+                archive.write(problem_dir, "../malicious.txt")
+
+            archive_buffer.seek(0)
+            files = {"file": ("malicious.7z", archive_buffer,
+                              "application/x-7z-compressed")}
+            response = client.put("/security-test-7z", files=files)
+
+            assert response.status_code == 400
+            data = response.json()
+            assert "Unsafe path" in data["detail"]
+            assert "7z" in data["detail"]
 
     def test_put_no_file_provided(self):
         """Test PUT request without file returns validation error"""
@@ -393,6 +644,7 @@ class TestApiTokenSecurity:
 
             data = response.json()
             assert data["status"] == "extracted"
+            assert data["archive_type"] == "tar.gz"
 
             # Clean up
             created_path = pathlib.Path(data["created_path"])
@@ -539,8 +791,15 @@ class TestApiTokenSecurity:
     "/path_with_underscores",
     "/123numbers456",
 ])
-def test_put_various_endpoints_with_tarball(endpoint):
-    """Parametrized test for various PUT endpoints with tar.gz files"""
+@pytest.mark.parametrize("archive_info", [
+    ("tar.gz", "test.tar.gz", "application/gzip", create_test_tarball),
+    ("zip", "test.zip", "application/zip", create_test_zip),
+    ("7z", "test.7z", "application/x-7z-compressed", create_test_7z),
+])
+def test_put_various_endpoints_with_archives(endpoint, archive_info):
+    """Parametrized test for various PUT endpoints with different archive formats"""
+    archive_type, filename, content_type, create_func = archive_info
+
     # Ensure clean environment with no API token for these tests
     with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY}, clear=True):
         import hermesbaby.hermes.main as main_module
@@ -548,13 +807,12 @@ def test_put_various_endpoints_with_tarball(endpoint):
         test_client = TestClient(main_module.app)
 
         test_files = {
-            "README.md": f"Test content for {endpoint}",
-            "data/info.txt": "Some nested data"
+            "README.md": f"Test content for {endpoint} with {archive_type}",
+            "data/info.txt": f"Some nested data in {archive_type}"
         }
-        tarball_content = create_test_tarball(test_files)
+        archive_content = create_func(test_files)
 
-        files = {"file": ("test.tar.gz", io.BytesIO(
-            tarball_content), "application/gzip")}
+        files = {"file": (filename, io.BytesIO(archive_content), content_type)}
         response = test_client.put(endpoint, files=files)
 
         assert response.status_code == 200
@@ -563,7 +821,9 @@ def test_put_various_endpoints_with_tarball(endpoint):
         assert data["method"] == "PUT"
         assert "created_path" in data
         assert data["status"] == "extracted"
-        assert data["filename"] == "test.tar.gz"
+        assert data["archive_type"] == archive_type
+        assert data["filename"] == filename
+        assert "total_extracted_paths" in data
 
         # Clean up
         created_path = pathlib.Path(data["created_path"])

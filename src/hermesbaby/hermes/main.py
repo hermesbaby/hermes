@@ -4,10 +4,12 @@ import os
 import pathlib
 import importlib.metadata
 import tarfile
+import zipfile
 import shutil
 import tempfile
-from typing import Optional, Annotated
+from typing import Optional, Annotated, Tuple, List
 from pydantic_settings import BaseSettings
+import py7zr
 
 __version__ = importlib.metadata.version("hermesbaby.hermes")
 
@@ -31,6 +33,88 @@ app = FastAPI(title="Hermes API", version=__version__)
 
 # Security scheme for API token
 security = HTTPBearer(auto_error=False)
+
+
+def get_archive_type(filename: str) -> str:
+    """Determine the archive type from filename extension"""
+    if not filename:
+        return "unknown"
+
+    filename_lower = filename.lower()
+    if filename_lower.endswith('.tar.gz') or filename_lower.endswith('.tgz'):
+        return "tar.gz"
+    elif filename_lower.endswith('.zip'):
+        return "zip"
+    elif filename_lower.endswith('.7z'):
+        return "7z"
+    else:
+        return "unknown"
+
+
+def validate_archive_paths(paths: List[str], archive_type: str) -> None:
+    """Validate that archive paths are safe to extract"""
+    for path in paths:
+        # Check for absolute paths
+        if os.path.isabs(path):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsafe path in {archive_type} archive: {path} (absolute path)"
+            )
+
+        # Check for directory traversal
+        if '..' in path or path.startswith('../'):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsafe path in {archive_type} archive: {path} (directory traversal)"
+            )
+
+
+def extract_tar_gz(temp_file_path: str, extract_path: pathlib.Path) -> List[str]:
+    """Extract tar.gz archive and return list of extracted items"""
+    extracted_items = []
+
+    with tarfile.open(temp_file_path, 'r:gz') as tar:
+        # Get all member names for security validation
+        member_names = [member.name for member in tar.getmembers()]
+        validate_archive_paths(member_names, "tar.gz")
+
+        # Extract all contents to the target directory
+        tar.extractall(path=extract_path, filter='data')
+        extracted_items = member_names
+
+    return extracted_items
+
+
+def extract_zip(temp_file_path: str, extract_path: pathlib.Path) -> List[str]:
+    """Extract ZIP archive and return list of extracted items"""
+    extracted_items = []
+
+    with zipfile.ZipFile(temp_file_path, 'r') as zip_file:
+        # Get all file names for security validation
+        file_names = zip_file.namelist()
+        validate_archive_paths(file_names, "ZIP")
+
+        # Extract all contents to the target directory
+        zip_file.extractall(path=extract_path)
+        extracted_items = file_names
+
+    return extracted_items
+
+
+def extract_7z(temp_file_path: str, extract_path: pathlib.Path) -> List[str]:
+    """Extract 7z archive and return list of extracted items"""
+    extracted_items = []
+
+    with py7zr.SevenZipFile(temp_file_path, mode='r') as archive:
+        # Get all file names for security validation
+        file_names = archive.getnames()
+        validate_archive_paths(file_names, "7z")
+
+        # Extract all contents to the target directory
+        archive.extractall(path=extract_path)
+        extracted_items = file_names
+
+    return extracted_items
 
 
 async def verify_api_token(
@@ -81,18 +165,19 @@ async def health():
 
 
 @app.put("/{path:path}")
-async def extract_tarball(
+async def extract_archive(
     path: str,
     file: UploadFile = File(...),
     _: None = Depends(verify_api_token)
 ):
-    """Accept PUT requests with tar.gz files and extract them to the specified path"""
+    """Accept PUT requests with archive files (tar.gz, .tgz, .zip, .7z) and extract them to the specified path"""
     try:
-        # Validate that the uploaded file is a tar.gz file
-        if not file.filename or not (file.filename.endswith('.tar.gz') or file.filename.endswith('.tgz')):
+        # Determine archive type and validate
+        archive_type = get_archive_type(file.filename)
+        if archive_type == "unknown":
             raise HTTPException(
                 status_code=400,
-                detail="File must be a tar.gz or .tgz file"
+                detail="File must be a supported archive format: .tar.gz, .tgz, .zip, or .7z"
             )
 
         # Construct the full path by joining base directory with the requested path
@@ -108,28 +193,36 @@ async def extract_tarball(
         # Create the directory structure (including intermediate directories)
         full_path.mkdir(parents=True, exist_ok=True)
 
-        # Create a temporary file to save the uploaded tar.gz
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.tar.gz') as temp_file:
+        # Determine appropriate file suffix for temporary file
+        suffix_map = {
+            "tar.gz": ".tar.gz",
+            "zip": ".zip",
+            "7z": ".7z"
+        }
+        temp_suffix = suffix_map.get(archive_type, ".tmp")
+
+        # Create a temporary file to save the uploaded archive
+        with tempfile.NamedTemporaryFile(delete=False, suffix=temp_suffix) as temp_file:
             # Read and write the uploaded file content
             content = await file.read()
             temp_file.write(content)
             temp_file_path = temp_file.name
 
         try:
-            # Extract the tar.gz file to the target directory
-            with tarfile.open(temp_file_path, 'r:gz') as tar:
-                # Security check: ensure all members are safe to extract
-                for member in tar.getmembers():
-                    if member.name.startswith('/') or '..' in member.name:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Unsafe path in archive: {member.name}"
-                        )
+            # Extract the archive based on its type
+            if archive_type == "tar.gz":
+                extracted_paths = extract_tar_gz(temp_file_path, full_path)
+            elif archive_type == "zip":
+                extracted_paths = extract_zip(temp_file_path, full_path)
+            elif archive_type == "7z":
+                extracted_paths = extract_7z(temp_file_path, full_path)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported archive format: {archive_type}"
+                )
 
-                # Extract all contents to the target directory
-                tar.extractall(path=full_path, filter='data')
-
-            # Get list of extracted files/directories for response
+            # Get list of extracted files/directories at the root level for response
             extracted_items = list(full_path.iterdir())
             extracted_names = [item.name for item in extracted_items]
 
@@ -138,9 +231,11 @@ async def extract_tarball(
                 "method": "PUT",
                 "created_path": str(full_path),
                 "status": "extracted",
+                "archive_type": archive_type,
                 "filename": file.filename,
                 "file_size": len(content),
-                "extracted_items": extracted_names
+                "extracted_items": extracted_names,
+                "total_extracted_paths": len(extracted_paths)
             }
 
         finally:
@@ -153,5 +248,5 @@ async def extract_tarball(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to extract tarball: {str(e)}"
+            detail=f"Failed to extract archive: {str(e)}"
         )
