@@ -1,6 +1,9 @@
 import pytest
+import os
+import pathlib
+import tempfile
 from fastapi.testclient import TestClient
-from hermesbaby.hermes.main import app
+from hermesbaby.hermes.main import app, BASE_DIRECTORY
 
 # Create a test client
 client = TestClient(app)
@@ -22,7 +25,7 @@ class TestHealthEndpoint:
 
 
 class TestPutEndpoints:
-    """Test PUT endpoints that echo back the endpoint path"""
+    """Test PUT endpoints that create paths on the filesystem"""
 
     def test_put_root_endpoint(self):
         """Test PUT request to root endpoint / works via catch-all handler"""
@@ -32,6 +35,8 @@ class TestPutEndpoints:
         data = response.json()
         assert data["endpoint"] == "/"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
 
     def test_put_single_path(self):
         """Test PUT request to single path endpoint"""
@@ -41,6 +46,9 @@ class TestPutEndpoints:
         data = response.json()
         assert data["endpoint"] == "/users"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
+        assert data["created_path"].endswith("/users")
 
     def test_put_nested_path(self):
         """Test PUT request to nested path endpoint"""
@@ -50,6 +58,9 @@ class TestPutEndpoints:
         data = response.json()
         assert data["endpoint"] == "/api/v1/users"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
+        assert data["created_path"].endswith("/api/v1/users")
 
     def test_put_path_with_numbers(self):
         """Test PUT request to path with numbers"""
@@ -59,6 +70,9 @@ class TestPutEndpoints:
         data = response.json()
         assert data["endpoint"] == "/users/123"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
+        assert data["created_path"].endswith("/users/123")
 
     def test_put_path_with_special_chars(self):
         """Test PUT request to path with special characters"""
@@ -68,6 +82,9 @@ class TestPutEndpoints:
         data = response.json()
         assert data["endpoint"] == "/api/v1/users-data_test"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
+        assert data["created_path"].endswith("/api/v1/users-data_test")
 
     def test_put_deep_nested_path(self):
         """Test PUT request to deeply nested path"""
@@ -77,9 +94,13 @@ class TestPutEndpoints:
         data = response.json()
         assert data["endpoint"] == "/api/v1/organizations/123/users/456/profiles"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
+        assert data["created_path"].endswith(
+            "/api/v1/organizations/123/users/456/profiles")
 
     def test_put_with_json_body(self):
-        """Test PUT request with JSON body - should still echo endpoint"""
+        """Test PUT request with JSON body - should still create path"""
         json_data = {"name": "test", "value": 123}
         response = client.put("/data", json=json_data)
 
@@ -87,9 +108,11 @@ class TestPutEndpoints:
         data = response.json()
         assert data["endpoint"] == "/data"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
 
     def test_put_with_headers(self):
-        """Test PUT request with custom headers - should still echo endpoint"""
+        """Test PUT request with custom headers - should still create path"""
         headers = {"X-Custom-Header": "test-value"}
         response = client.put("/custom", headers=headers)
 
@@ -97,6 +120,27 @@ class TestPutEndpoints:
         data = response.json()
         assert data["endpoint"] == "/custom"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
+
+    def test_directory_actually_created(self):
+        """Test that directories are actually created on the filesystem"""
+        test_path = "/test/filesystem/creation"
+        response = client.put(test_path)
+
+        assert response.status_code == 200
+        data = response.json()
+        created_path = data["created_path"]
+
+        # Verify the directory actually exists
+        assert os.path.exists(created_path)
+        assert os.path.isdir(created_path)
+
+        # Clean up the test directory
+        import shutil
+        test_base = pathlib.Path(BASE_DIRECTORY) / "test"
+        if test_base.exists():
+            shutil.rmtree(test_base)
 
 
 class TestOtherHttpMethods:
@@ -129,6 +173,8 @@ class TestOtherHttpMethods:
         data = response.json()
         assert data["endpoint"] == "/"
         assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "created"
 
 
 class TestApiMetadata:
@@ -169,3 +215,5 @@ def test_put_various_endpoints(endpoint):
     data = response.json()
     assert data["endpoint"] == endpoint
     assert data["method"] == "PUT"
+    assert "created_path" in data
+    assert data["status"] == "created"

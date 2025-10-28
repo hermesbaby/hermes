@@ -1,19 +1,20 @@
 # HermesBaby-Hermes
 
-**Hermes** is a lightweight FastAPI service that acts as a universal PUT endpoint echo service. It's designed to accept PUT requests to any endpoint and echo back the requested path, making it useful for testing, debugging, and webhook development.
+**Hermes** is a lightweight FastAPI service that acts as a universal PUT endpoint directory creation service. It accepts PUT requests to any endpoint path and creates the corresponding directory structure on the local filesystem, making it useful for dynamic file system provisioning, testing, and development workflows.
 
 ## What This Docker Image Does
 
 The Hermes Docker image provides:
 
-- **Universal PUT Echo Service**: Accepts PUT requests to any endpoint path and returns the endpoint path along with the HTTP method
+- **Universal PUT Directory Creation Service**: Accepts PUT requests to any endpoint path and creates the corresponding directory structure on the filesystem
 - **Health Check Endpoint**: Provides a `/health` endpoint for monitoring and container orchestration
 - **FastAPI-based**: Built on FastAPI with automatic API documentation
 - **Production Ready**: Includes proper security configuration, non-root user, and health checks
 
 ### Key Features
 
-- 🌐 **Catch-all PUT endpoints**: Any PUT request to `/path/to/anything` returns `{"endpoint": "/path/to/anything", "method": "PUT"}`
+- 🌐 **Catch-all PUT endpoints**: Any PUT request to `/path/to/anything` creates the directory structure and returns creation details
+- 📁 **Filesystem Integration**: Creates actual directories on the local filesystem under a configured base directory
 - 🏥 **Built-in health checks**: `/health` endpoint returns service status and version
 - 📚 **Auto-generated docs**: OpenAPI/Swagger documentation at `/docs`
 - 🔒 **Security-focused**: Runs as non-root user with minimal attack surface
@@ -109,7 +110,7 @@ GET /health
 }
 ```
 
-### Universal PUT Echo
+### Universal PUT Directory Creation
 
 ```http
 PUT /{any_path}
@@ -118,24 +119,51 @@ PUT /{any_path}
 **Examples:**
 
 ```bash
-# Simple path
+# Simple path - creates directory structure
 curl -X PUT http://localhost:8000/users
-# Returns: {"endpoint": "/users", "method": "PUT"}
+# Returns: {
+#   "endpoint": "/users", 
+#   "method": "PUT", 
+#   "created_path": "/tmp/hermes_files/users",
+#   "status": "created"
+# }
 
-# Nested path
+# Nested path - creates full directory tree
 curl -X PUT http://localhost:8000/api/v1/users/123
-# Returns: {"endpoint": "/api/v1/users/123", "method": "PUT"}
+# Returns: {
+#   "endpoint": "/api/v1/users/123", 
+#   "method": "PUT", 
+#   "created_path": "/tmp/hermes_files/api/v1/users/123",
+#   "status": "created"
+# }
 
 # Root path
 curl -X PUT http://localhost:8000/
-# Returns: {"endpoint": "/", "method": "PUT"}
+# Returns: {
+#   "endpoint": "/", 
+#   "method": "PUT", 
+#   "created_path": "/tmp/hermes_files",
+#   "status": "created"
+# }
 
-# With JSON body
+# With JSON body - body is ignored, directory is still created
 curl -X PUT -H "Content-Type: application/json" \
      -d '{"data": "test"}' \
      http://localhost:8000/webhook/callback
-# Returns: {"endpoint": "/webhook/callback", "method": "PUT"}
+# Returns: {
+#   "endpoint": "/webhook/callback", 
+#   "method": "PUT", 
+#   "created_path": "/tmp/hermes_files/webhook/callback",
+#   "status": "created"
+# }
 ```
+
+**Directory Creation Details:**
+
+- **Base Directory**: All directories are created under `/tmp/hermes_files/` (hardcoded)
+- **Automatic Nesting**: Intermediate directories are created automatically (like `mkdir -p`)
+- **Idempotent**: Multiple requests to the same path won't cause errors
+- **Path Safety**: Input paths are sanitized and safely joined with the base directory
 
 ### API Documentation
 
@@ -145,26 +173,44 @@ curl -X PUT -H "Content-Type: application/json" \
 
 ## Use Cases
 
-### Webhook Testing
-Perfect for testing webhook integrations during development:
+### Dynamic Directory Provisioning
+Perfect for applications that need to create directory structures on-demand:
 
 ```bash
-# Your application sends webhook to hermes
-curl -X PUT http://localhost:8000/webhooks/payment/completed \
+# Your application needs to create a directory structure
+curl -X PUT http://localhost:8000/projects/2024/client-abc/assets/images
+# Creates: /tmp/hermes_files/projects/2024/client-abc/assets/images/
+```
+
+### File System Prototyping
+Use during development to quickly create directory structures for testing:
+
+```bash
+# Set up a complex directory structure for testing
+curl -X PUT http://localhost:8000/app/data/users/profiles
+curl -X PUT http://localhost:8000/app/data/users/settings  
+curl -X PUT http://localhost:8000/app/logs/2024/10
+# Creates complete directory tree structure
+```
+
+### Webhook-Driven Directory Creation
+Create directories based on webhook events:
+
+```bash
+# Webhook creates directory based on event data
+curl -X PUT http://localhost:8000/webhooks/user-123/profile-updated \
      -H "Content-Type: application/json" \
-     -d '{"payment_id": "12345", "status": "completed"}'
+     -d '{"user_id": "123", "event": "profile_updated"}'
+# Creates: /tmp/hermes_files/webhooks/user-123/profile-updated/
 ```
 
-### API Development & Debugging
-Use as a mock service to verify your API client is making correct requests:
+### Development & Testing
+Test directory creation logic and verify filesystem operations:
 
 ```bash
-# Test your API client against hermes
-curl -X PUT http://localhost:8000/api/v2/users/update/profile
+# Test your application's directory creation needs
+curl -X PUT http://localhost:8000/api/v2/organizations/456/projects/789/files
 ```
-
-### Load Testing
-Test PUT endpoint performance and routing logic.
 
 ## Development
 
@@ -194,9 +240,19 @@ docker run -p 8000:8000 hermes:test
 # Run tests against the running container
 curl http://localhost:8000/health
 curl -X PUT http://localhost:8000/test/endpoint
+
+# Verify directory was created
+ls -la /tmp/hermes_files/test/
 ```
 
 ## Configuration
+
+### Directory Configuration
+
+- **Base Directory**: `/tmp/hermes_files/` (hardcoded in the current version)
+- **Directory Permissions**: Created with default permissions (755)
+- **Path Handling**: Safely handles nested paths, special characters, and edge cases
+- **Idempotent Operation**: Multiple requests to the same path are safe and won't cause errors
 
 ### Environment Variables
 
@@ -227,6 +283,27 @@ This project is dual-licensed:
 - **CC BY-SA-4.0** for methodological usage
 
 See `LICENSE.md` for full details.
+
+## Migration from Echo Service
+
+**⚠️ Breaking Change**: This version changes the behavior from echoing paths to actually creating directories on the filesystem.
+
+**Previous behavior** (echo service):
+```json
+{"endpoint": "/users", "method": "PUT"}
+```
+
+**New behavior** (directory creation):
+```json
+{
+  "endpoint": "/users",
+  "method": "PUT", 
+  "created_path": "/tmp/hermes_files/users",
+  "status": "created"
+}
+```
+
+If you need the old echo behavior, please use an earlier version of the service.
 
 ## Support & Contributing
 
