@@ -7,13 +7,15 @@ import io
 import shutil
 import subprocess
 import sys
+import importlib
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 # Test configuration
 TEST_BASE_DIRECTORY = "/tmp/hermes_test"
+TEST_API_TOKEN = "test-secret-token-12345"
 
-# Mock the settings for tests
+# Mock the settings for tests - no token by default
 with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY}):
     from hermesbaby.hermes.main import app, settings
 
@@ -309,6 +311,211 @@ class TestApiMetadata:
         assert "text/html" in response.headers["content-type"]
 
 
+class TestApiTokenSecurity:
+    """Test API token authentication for PUT endpoints"""
+
+    def test_put_without_token_when_no_token_configured(self):
+        """Test PUT request succeeds when no API token is configured"""
+        # Ensure no token is configured in settings
+        with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY}, clear=True):
+            from hermesbaby.hermes.main import app
+            test_client = TestClient(app)
+
+            test_files = {"test.txt": "No token required"}
+            tarball_content = create_test_tarball(test_files)
+            files = {"file": ("test.tar.gz", io.BytesIO(
+                tarball_content), "application/gzip")}
+
+            response = test_client.put("/no-token-test", files=files)
+            assert response.status_code == 200
+
+            # Clean up
+            data = response.json()
+            created_path = pathlib.Path(data["created_path"])
+            if created_path.exists():
+                shutil.rmtree(created_path)
+
+    def test_put_without_token_when_token_required(self):
+        """Test PUT request fails when API token is required but not provided"""
+        # Configure API token
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            # Force reload the module to pick up new environment
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            test_client = TestClient(main_module.app)
+
+            test_files = {"test.txt": "Token required"}
+            tarball_content = create_test_tarball(test_files)
+            files = {"file": ("test.tar.gz", io.BytesIO(
+                tarball_content), "application/gzip")}
+
+            response = test_client.put("/token-required-test", files=files)
+            assert response.status_code == 401
+            assert "API token required" in response.json()["detail"]
+            assert response.headers.get("WWW-Authenticate") == "Bearer"
+
+    def test_put_with_valid_bearer_token(self):
+        """Test PUT request succeeds with valid Bearer token"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            # Force reload the module to pick up new environment
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            test_client = TestClient(main_module.app)
+
+            test_files = {"test.txt": "Valid token"}
+            tarball_content = create_test_tarball(test_files)
+            files = {"file": ("test.tar.gz", io.BytesIO(
+                tarball_content), "application/gzip")}
+            headers = {"Authorization": f"Bearer {TEST_API_TOKEN}"}
+
+            response = test_client.put(
+                "/valid-token-test", files=files, headers=headers)
+            assert response.status_code == 200
+
+            data = response.json()
+            assert data["status"] == "extracted"
+
+            # Clean up
+            created_path = pathlib.Path(data["created_path"])
+            if created_path.exists():
+                shutil.rmtree(created_path)
+
+    def test_put_with_valid_x_api_token_header(self):
+        """Test PUT request succeeds with valid X-API-Token header"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            # Force reload the module to pick up new environment
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            test_client = TestClient(main_module.app)
+
+            test_files = {"test.txt": "Valid X-API-Token"}
+            tarball_content = create_test_tarball(test_files)
+            files = {"file": ("test.tar.gz", io.BytesIO(
+                tarball_content), "application/gzip")}
+            headers = {"X-API-Token": TEST_API_TOKEN}
+
+            response = test_client.put(
+                "/x-api-token-test", files=files, headers=headers)
+            assert response.status_code == 200
+
+            data = response.json()
+            assert data["status"] == "extracted"
+
+            # Clean up
+            created_path = pathlib.Path(data["created_path"])
+            if created_path.exists():
+                shutil.rmtree(created_path)
+
+    def test_put_with_invalid_bearer_token(self):
+        """Test PUT request fails with invalid Bearer token"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            # Force reload the module to pick up new environment
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            test_client = TestClient(main_module.app)
+
+            test_files = {"test.txt": "Invalid token"}
+            tarball_content = create_test_tarball(test_files)
+            files = {"file": ("test.tar.gz", io.BytesIO(
+                tarball_content), "application/gzip")}
+            headers = {"Authorization": "Bearer wrong-token"}
+
+            response = test_client.put(
+                "/invalid-token-test", files=files, headers=headers)
+            assert response.status_code == 401
+            assert "Invalid API token" in response.json()["detail"]
+
+    def test_put_with_invalid_x_api_token_header(self):
+        """Test PUT request fails with invalid X-API-Token header"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            # Force reload the module to pick up new environment
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            test_client = TestClient(main_module.app)
+
+            test_files = {"test.txt": "Invalid X-API-Token"}
+            tarball_content = create_test_tarball(test_files)
+            files = {"file": ("test.tar.gz", io.BytesIO(
+                tarball_content), "application/gzip")}
+            headers = {"X-API-Token": "wrong-token"}
+
+            response = test_client.put(
+                "/invalid-x-api-token-test", files=files, headers=headers)
+            assert response.status_code == 401
+            assert "Invalid API token" in response.json()["detail"]
+
+    def test_bearer_token_takes_precedence_over_x_api_token(self):
+        """Test that Bearer token is used when both headers are present"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            # Force reload the module to pick up new environment
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            test_client = TestClient(main_module.app)
+
+            test_files = {"test.txt": "Precedence test"}
+            tarball_content = create_test_tarball(test_files)
+            files = {"file": ("test.tar.gz", io.BytesIO(
+                tarball_content), "application/gzip")}
+            headers = {
+                "Authorization": f"Bearer {TEST_API_TOKEN}",  # Valid
+                "X-API-Token": "wrong-token"  # Invalid, but should be ignored
+            }
+
+            response = test_client.put(
+                "/precedence-test", files=files, headers=headers)
+            assert response.status_code == 200
+
+            # Clean up
+            data = response.json()
+            created_path = pathlib.Path(data["created_path"])
+            if created_path.exists():
+                shutil.rmtree(created_path)
+
+    def test_health_endpoint_not_protected(self):
+        """Test that health endpoint is not protected by API token"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            # Force reload the module to pick up new environment
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            test_client = TestClient(main_module.app)
+
+            # Should work without any token
+            response = test_client.get("/health")
+            assert response.status_code == 200
+            assert response.json()["status"] == "ok"
+
+    def test_api_token_configuration_from_environment(self):
+        """Test that API token is properly loaded from environment variable"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": "custom-env-token"
+        }):
+            from hermesbaby.hermes.main import Settings
+            test_settings = Settings()
+            assert test_settings.api_token == "custom-env-token"
+
+
 @pytest.mark.parametrize("endpoint", [
     "/",
     "/test",
@@ -321,25 +528,31 @@ class TestApiMetadata:
 ])
 def test_put_various_endpoints_with_tarball(endpoint):
     """Parametrized test for various PUT endpoints with tar.gz files"""
-    test_files = {
-        "README.md": f"Test content for {endpoint}",
-        "data/info.txt": "Some nested data"
-    }
-    tarball_content = create_test_tarball(test_files)
+    # Ensure clean environment with no API token for these tests
+    with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY}, clear=True):
+        import hermesbaby.hermes.main as main_module
+        importlib.reload(main_module)
+        test_client = TestClient(main_module.app)
 
-    files = {"file": ("test.tar.gz", io.BytesIO(
-        tarball_content), "application/gzip")}
-    response = client.put(endpoint, files=files)
+        test_files = {
+            "README.md": f"Test content for {endpoint}",
+            "data/info.txt": "Some nested data"
+        }
+        tarball_content = create_test_tarball(test_files)
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["endpoint"] == endpoint
-    assert data["method"] == "PUT"
-    assert "created_path" in data
-    assert data["status"] == "extracted"
-    assert data["filename"] == "test.tar.gz"
+        files = {"file": ("test.tar.gz", io.BytesIO(
+            tarball_content), "application/gzip")}
+        response = test_client.put(endpoint, files=files)
 
-    # Clean up
-    created_path = pathlib.Path(data["created_path"])
-    if created_path.exists():
-        shutil.rmtree(created_path)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["endpoint"] == endpoint
+        assert data["method"] == "PUT"
+        assert "created_path" in data
+        assert data["status"] == "extracted"
+        assert data["filename"] == "test.tar.gz"
+
+        # Clean up
+        created_path = pathlib.Path(data["created_path"])
+        if created_path.exists():
+            shutil.rmtree(created_path)
