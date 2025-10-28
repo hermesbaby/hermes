@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "hermesbaby-hermes"
+version = "1976.06.04.1"
+description = "Hermes: the hub of the HermesBaby stack"
+authors = ["basejumpa <alexander.mannwahrenberg@gmail.com>"]
+license = "MIT for contents used as software, CC BY-SA-4.0 for contents used as method or otherwise"
+readme = "README.md"
+packages = [{ include = "hermesbaby", from = "src" }]
+
+[tool.poetry.scripts]
+hermes = "hermesbaby.hermes.__main__:main"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.111.0"
+uvicorn = { extras = ["standard"], version = "^0.30.0" }
+
+[poetry.group.dev.dependencies]
+pytest = "^8.3.0"
+
+[build-system]
+requires = ["poetry-core", "poetry-dynamic-versioning"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+vcs = "git"

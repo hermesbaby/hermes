@@ -1,0 +1,39 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+docs/
+# Keep README.md as it's required by Poetry
+# README.md
+
+# Development files
+.devcontainer/
+.vscode/
+.editorconfig
+
+# Python cache and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+.env
+
+# Poetry
+poetry.lock
+
+# CI/CD
+.github/
+ci/
+
+# License files
+licenses/
+LICENSE.md
+
+# Temporary files
+.tmp/
+*.log
+*.tmp
