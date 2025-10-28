@@ -6,12 +6,25 @@ import tarfile
 import shutil
 import tempfile
 from typing import Optional
+from pydantic_settings import BaseSettings
 
 __version__ = importlib.metadata.version("hermesbaby.hermes")
-app = FastAPI(title="Hermes API", version=__version__)
 
-# Hardcoded base directory where paths will be created
-BASE_DIRECTORY = "/tmp/hermes_files"
+
+class Settings(BaseSettings):
+    """Configuration settings for Hermes API"""
+    base_directory: str  # Required field with no default
+
+    model_config = {
+        "env_prefix": "HERMES_",
+        "case_sensitive": False
+    }
+
+
+# Initialize settings - this will raise an error if HERMES_BASE_DIRECTORY is not set
+settings = Settings()
+
+app = FastAPI(title="Hermes API", version=__version__)
 
 
 @app.get("/health")
@@ -31,7 +44,7 @@ async def extract_tarball(path: str, file: UploadFile = File(...)):
             )
 
         # Construct the full path by joining base directory with the requested path
-        full_path = pathlib.Path(BASE_DIRECTORY) / path.lstrip('/')
+        full_path = pathlib.Path(settings.base_directory) / path.lstrip('/')
 
         # Remove existing content if the path exists
         if full_path.exists():

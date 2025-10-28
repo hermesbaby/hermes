@@ -50,12 +50,19 @@ docker build -t hermes:local .
 ### Quick Start
 
 ```bash
-# Run the container
-docker run -p 8000:8000 docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+# Run the container with required environment variable
+docker run -e HERMES_BASE_DIRECTORY="/app/data" -p 8000:8000 docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
 
 # Test the service
 curl http://localhost:8000/health
+
+# Test with a tar.gz file upload
+echo "Hello World" > test.txt
+tar -czf test.tar.gz test.txt
+curl -X PUT -F "file=@test.tar.gz" http://localhost:8000/test/upload
 ```
+
+⚠️ **Important**: The `HERMES_BASE_DIRECTORY` environment variable is **required**. The service will not start without it.
 
 ### Running with Docker Compose
 
@@ -66,14 +73,21 @@ version: '3.8'
 services:
   hermes:
     image: docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+    environment:
+      - HERMES_BASE_DIRECTORY=/app/data
     ports:
       - "8000:8000"
+    volumes:
+      - hermes_data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+
+volumes:
+  hermes_data:
 ```
 
 Then run:
@@ -84,14 +98,27 @@ docker-compose up -d
 
 ### Environment Configuration
 
-The service runs on port 8000 by default. You can customize the deployment:
+The service runs on port 8000 by default and **requires** the `HERMES_BASE_DIRECTORY` environment variable to be set.
+
+#### Required Environment Variables
+
+- **`HERMES_BASE_DIRECTORY`**: **Required**. The base directory where extracted files will be stored. The service will not start without this variable.
+
+#### Usage Examples
 
 ```bash
-# Run on a different port
-docker run -p 3000:8000 docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+# Run with required base directory configuration
+docker run -e HERMES_BASE_DIRECTORY="/app/data" -p 8000:8000 docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
 
-# Run with custom environment
-docker run -e PYTHONUNBUFFERED=1 -p 8000:8000 docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+# Run on a different port with custom base directory
+docker run -e HERMES_BASE_DIRECTORY="/var/hermes" -p 3000:8000 docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+
+# Run with additional environment variables
+docker run \
+  -e HERMES_BASE_DIRECTORY="/data/extractions" \
+  -e PYTHONUNBUFFERED=1 \
+  -p 8000:8000 \
+  docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
 ```
 
 ## API Endpoints
@@ -127,7 +154,7 @@ curl -X PUT -F "file=@my-app.tar.gz" http://localhost:8000/applications/myapp
 # Returns: {
 #   "endpoint": "/applications/myapp", 
 #   "method": "PUT", 
-#   "created_path": "/tmp/hermes_files/applications/myapp",
+#   "created_path": "/app/data/applications/myapp",
 #   "status": "extracted",
 #   "filename": "my-app.tar.gz",
 #   "file_size": 1234,
@@ -139,7 +166,7 @@ curl -X PUT -F "file=@project.tar.gz" http://localhost:8000/deployments/v1/webap
 # Returns: {
 #   "endpoint": "/deployments/v1/webapp", 
 #   "method": "PUT", 
-#   "created_path": "/tmp/hermes_files/deployments/v1/webapp",
+#   "created_path": "/app/data/deployments/v1/webapp",
 #   "status": "extracted",
 #   "filename": "project.tar.gz",
 #   "file_size": 5678,
@@ -151,7 +178,7 @@ curl -X PUT -F "file=@archive.tar.gz" http://localhost:8000/
 # Returns: {
 #   "endpoint": "/", 
 #   "method": "PUT", 
-#   "created_path": "/tmp/hermes_files",
+#   "created_path": "/app/data",
 #   "status": "extracted",
 #   "filename": "archive.tar.gz",
 #   "file_size": 9012,
@@ -164,7 +191,7 @@ curl -X PUT -F "file=@backup.tgz" http://localhost:8000/backups/daily
 
 **Extraction Details:**
 
-- **Base Directory**: All directories are created under `/tmp/hermes_files/` (hardcoded)
+- **Base Directory**: All directories are created under the configured `HERMES_BASE_DIRECTORY` environment variable
 - **Content Replacement**: Existing content at the target path is completely removed before extraction
 - **Archive Structure Preserved**: Internal directory structure of the tar.gz is maintained after extraction
 - **File Type Validation**: Only `.tar.gz` and `.tgz` files are accepted
@@ -185,7 +212,7 @@ Perfect for deploying packaged applications with their complete directory struct
 ```bash
 # Deploy a web application with all its assets
 curl -X PUT -F "file=@webapp-v2.1.tar.gz" http://localhost:8000/deployments/webapp/v2.1
-# Extracts: /tmp/hermes_files/deployments/webapp/v2.1/
+# Extracts: $HERMES_BASE_DIRECTORY/deployments/webapp/v2.1/
 #   ├── static/css/
 #   ├── static/js/
 #   ├── templates/
@@ -209,7 +236,7 @@ Publish website content or documentation with full directory structure:
 ```bash
 # Publish documentation site
 curl -X PUT -F "file=@docs-site.tar.gz" http://localhost:8000/sites/documentation
-# Extracts: /tmp/hermes_files/sites/documentation/
+# Extracts: $HERMES_BASE_DIRECTORY/sites/documentation/
 #   ├── index.html
 #   ├── api/
 #   ├── guides/
@@ -242,10 +269,11 @@ curl -X PUT -F "file=@backup-2024-10-28.tar.gz" http://localhost:8000/restore/20
 # Install dependencies
 poetry install
 
-# Run the development server
+# Set required environment variable and run the development server
+export HERMES_BASE_DIRECTORY="/tmp/hermes_dev"
 poetry run uvicorn hermesbaby.hermes.main:app --reload --host 0.0.0.0 --port 8000
 
-# Run tests
+# Run tests (environment variable is mocked in tests)
 poetry run pytest
 
 # Run with coverage
@@ -257,21 +285,26 @@ poetry run pytest --cov=hermesbaby
 ```bash
 # Build and test locally
 docker build -t hermes:test .
-docker run -p 8000:8000 hermes:test
+docker run -e HERMES_BASE_DIRECTORY="/app/test" -p 8000:8000 hermes:test
 
 # Run tests against the running container
 curl http://localhost:8000/health
-curl -X PUT http://localhost:8000/test/endpoint
+# Note: PUT requests require tar.gz file uploads, plain PUT requests will return 422
 
-# Verify directory was created
-ls -la /tmp/hermes_files/test/
+# Test with actual tar.gz file
+echo "test content" > test.txt
+tar -czf test.tar.gz test.txt
+curl -X PUT -F "file=@test.tar.gz" http://localhost:8000/test/endpoint
+
+# Verify directory was created (inside container)
+docker exec <container_id> ls -la /app/test/test/endpoint/
 ```
 
 ## Configuration
 
 ### Extraction Configuration
 
-- **Base Directory**: `/tmp/hermes_files/` (hardcoded in the current version)
+- **Base Directory**: Configured via the required `HERMES_BASE_DIRECTORY` environment variable
 - **Directory Permissions**: Created with default permissions (755)
 - **Path Handling**: Safely handles nested paths, special characters, and edge cases
 - **Content Replacement**: Existing content is completely removed before new extraction
@@ -279,6 +312,12 @@ ls -la /tmp/hermes_files/test/
 - **Structure Preservation**: Complete internal directory structure of archives is maintained
 
 ### Environment Variables
+
+#### Required Variables
+
+- **`HERMES_BASE_DIRECTORY`**: **Required**. Base directory for all file extractions. The service will fail to start without this variable.
+
+#### Optional Variables
 
 - `PYTHONUNBUFFERED=1`: Ensures Python output is not buffered
 - `PYTHONDONTWRITEBYTECODE=1`: Prevents Python from writing .pyc files
@@ -327,7 +366,7 @@ See `LICENSE.md` for full details.
 {
   "endpoint": "/users",
   "method": "PUT", 
-  "created_path": "/tmp/hermes_files/users",
+  "created_path": "$HERMES_BASE_DIRECTORY/users",
   "status": "extracted",
   "filename": "archive.tar.gz",
   "file_size": 1234,

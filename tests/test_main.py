@@ -5,8 +5,17 @@ import tempfile
 import tarfile
 import io
 import shutil
+import subprocess
+import sys
+from unittest.mock import patch
 from fastapi.testclient import TestClient
-from hermesbaby.hermes.main import app, BASE_DIRECTORY
+
+# Test configuration
+TEST_BASE_DIRECTORY = "/tmp/hermes_test"
+
+# Mock the settings for tests
+with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY}):
+    from hermesbaby.hermes.main import app, settings
 
 # Create a test client
 client = TestClient(app)
@@ -32,6 +41,46 @@ def create_test_tarball(files_dict):
 
     tar_buffer.seek(0)
     return tar_buffer.getvalue()
+
+
+class TestConfiguration:
+    """Test configuration requirements"""
+
+    def test_missing_base_directory_environment_variable(self):
+        """Test that the application fails to start without HERMES_BASE_DIRECTORY"""
+        # Temporarily remove the environment variable and try to import
+        import subprocess
+        import sys
+
+        # Run a subprocess that tries to import without the env var
+        result = subprocess.run([
+            sys.executable, "-c",
+            "from hermesbaby.hermes.main import settings"
+        ], capture_output=True, text=True, cwd="/workspace")
+
+        # Should fail with non-zero exit code
+        assert result.returncode != 0
+
+        # Should contain validation error message
+        assert "ValidationError" in result.stderr
+        assert "base_directory" in result.stderr
+        assert "Field required" in result.stderr
+
+    def test_custom_base_directory_from_env(self):
+        """Test that custom base directory is properly loaded from environment"""
+        import subprocess
+        import sys
+
+        # Run a subprocess with custom environment variable
+        env = {"HERMES_BASE_DIRECTORY": "/custom/test/path"}
+        result = subprocess.run([
+            sys.executable, "-c",
+            "from hermesbaby.hermes.main import settings; print(settings.base_directory)"
+        ], capture_output=True, text=True, cwd="/workspace", env={**os.environ, **env})
+
+        # Should succeed
+        assert result.returncode == 0
+        assert "/custom/test/path" in result.stdout
 
 
 class TestHealthEndpoint:
@@ -123,7 +172,7 @@ class TestPutTarballEndpoints:
     def test_put_replaces_existing_content(self):
         """Test that PUT request replaces existing content at the path"""
         # First, create some existing content
-        test_path = pathlib.Path(BASE_DIRECTORY) / "replace-test"
+        test_path = pathlib.Path(settings.base_directory) / "replace-test"
         test_path.mkdir(parents=True, exist_ok=True)
         (test_path / "old_file.txt").write_text("This should be removed")
         (test_path / "old_dir").mkdir(exist_ok=True)

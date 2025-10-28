@@ -1,6 +1,11 @@
 import pytest
+import os
+from unittest.mock import patch
 from fastapi.testclient import TestClient
-from hermesbaby.hermes.main import app
+
+# Mock the settings for tests before importing the app
+with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": "/tmp/hermes_test"}):
+    from hermesbaby.hermes.main import app
 
 
 @pytest.fixture
