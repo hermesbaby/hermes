@@ -1,20 +1,22 @@
 # HermesBaby-Hermes
 
-**Hermes** is a lightweight FastAPI service that acts as a universal PUT endpoint directory creation service. It accepts PUT requests to any endpoint path and creates the corresponding directory structure on the local filesystem, making it useful for dynamic file system provisioning, testing, and development workflows.
+**Hermes** is a lightweight FastAPI service that acts as a universal PUT endpoint for tar.gz file extraction. It accepts PUT requests with tar.gz files to any endpoint path, creates the corresponding directory structure on the local filesystem, and extracts the archive contents with their internal directory structure, making it useful for dynamic file system provisioning, deployment, and development workflows.
 
 ## What This Docker Image Does
 
 The Hermes Docker image provides:
 
-- **Universal PUT Directory Creation Service**: Accepts PUT requests to any endpoint path and creates the corresponding directory structure on the filesystem
+- **Universal PUT Tar.gz Extraction Service**: Accepts PUT requests with tar.gz files to any endpoint path, creates directory structure, and extracts archive contents
 - **Health Check Endpoint**: Provides a `/health` endpoint for monitoring and container orchestration
 - **FastAPI-based**: Built on FastAPI with automatic API documentation
 - **Production Ready**: Includes proper security configuration, non-root user, and health checks
 
 ### Key Features
 
-- 🌐 **Catch-all PUT endpoints**: Any PUT request to `/path/to/anything` creates the directory structure and returns creation details
-- 📁 **Filesystem Integration**: Creates actual directories on the local filesystem under a configured base directory
+- 🌐 **Catch-all PUT endpoints**: Any PUT request with tar.gz file to `/path/to/anything` creates directory structure and extracts archive contents
+- 📁 **Filesystem Integration**: Creates actual directories on the local filesystem under a configured base directory and extracts tar.gz contents
+- 🔄 **Content Replacement**: Automatically removes existing content at target path before extraction to ensure clean deployment
+- 🔐 **Security Validation**: Validates file types (tar.gz/tgz only) and rejects archives with unsafe paths (absolute paths, `..` traversal)
 - 🏥 **Built-in health checks**: `/health` endpoint returns service status and version
 - 📚 **Auto-generated docs**: OpenAPI/Swagger documentation at `/docs`
 - 🔒 **Security-focused**: Runs as non-root user with minimal attack surface
@@ -110,60 +112,64 @@ GET /health
 }
 ```
 
-### Universal PUT Directory Creation
+### Universal PUT Tar.gz Extraction
 
 ```http
 PUT /{any_path}
+Content-Type: multipart/form-data
 ```
 
 **Examples:**
 
 ```bash
-# Simple path - creates directory structure
-curl -X PUT http://localhost:8000/users
+# Simple tar.gz upload - creates directory and extracts contents
+curl -X PUT -F "file=@my-app.tar.gz" http://localhost:8000/applications/myapp
 # Returns: {
-#   "endpoint": "/users", 
+#   "endpoint": "/applications/myapp", 
 #   "method": "PUT", 
-#   "created_path": "/tmp/hermes_files/users",
-#   "status": "created"
+#   "created_path": "/tmp/hermes_files/applications/myapp",
+#   "status": "extracted",
+#   "filename": "my-app.tar.gz",
+#   "file_size": 1234,
+#   "extracted_items": ["src", "config", "README.md"]
 # }
 
-# Nested path - creates full directory tree
-curl -X PUT http://localhost:8000/api/v1/users/123
+# Nested path with complex archive structure
+curl -X PUT -F "file=@project.tar.gz" http://localhost:8000/deployments/v1/webapp
 # Returns: {
-#   "endpoint": "/api/v1/users/123", 
+#   "endpoint": "/deployments/v1/webapp", 
 #   "method": "PUT", 
-#   "created_path": "/tmp/hermes_files/api/v1/users/123",
-#   "status": "created"
+#   "created_path": "/tmp/hermes_files/deployments/v1/webapp",
+#   "status": "extracted",
+#   "filename": "project.tar.gz",
+#   "file_size": 5678,
+#   "extracted_items": ["app", "static", "templates", "requirements.txt"]
 # }
 
-# Root path
-curl -X PUT http://localhost:8000/
+# Root path extraction
+curl -X PUT -F "file=@archive.tar.gz" http://localhost:8000/
 # Returns: {
 #   "endpoint": "/", 
 #   "method": "PUT", 
 #   "created_path": "/tmp/hermes_files",
-#   "status": "created"
+#   "status": "extracted",
+#   "filename": "archive.tar.gz",
+#   "file_size": 9012,
+#   "extracted_items": ["data", "logs", "config.json"]
 # }
 
-# With JSON body - body is ignored, directory is still created
-curl -X PUT -H "Content-Type: application/json" \
-     -d '{"data": "test"}' \
-     http://localhost:8000/webhook/callback
-# Returns: {
-#   "endpoint": "/webhook/callback", 
-#   "method": "PUT", 
-#   "created_path": "/tmp/hermes_files/webhook/callback",
-#   "status": "created"
-# }
+# .tgz files are also supported
+curl -X PUT -F "file=@backup.tgz" http://localhost:8000/backups/daily
 ```
 
-**Directory Creation Details:**
+**Extraction Details:**
 
 - **Base Directory**: All directories are created under `/tmp/hermes_files/` (hardcoded)
-- **Automatic Nesting**: Intermediate directories are created automatically (like `mkdir -p`)
-- **Idempotent**: Multiple requests to the same path won't cause errors
-- **Path Safety**: Input paths are sanitized and safely joined with the base directory
+- **Content Replacement**: Existing content at the target path is completely removed before extraction
+- **Archive Structure Preserved**: Internal directory structure of the tar.gz is maintained after extraction
+- **File Type Validation**: Only `.tar.gz` and `.tgz` files are accepted
+- **Security Filtering**: Archives with absolute paths (`/etc/passwd`) or directory traversal (`../`) are rejected
+- **Automatic Cleanup**: Temporary files are automatically cleaned up after extraction
 
 ### API Documentation
 
@@ -173,43 +179,59 @@ curl -X PUT -H "Content-Type: application/json" \
 
 ## Use Cases
 
-### Dynamic Directory Provisioning
-Perfect for applications that need to create directory structures on-demand:
+### Application Deployment
+Perfect for deploying packaged applications with their complete directory structure:
 
 ```bash
-# Your application needs to create a directory structure
-curl -X PUT http://localhost:8000/projects/2024/client-abc/assets/images
-# Creates: /tmp/hermes_files/projects/2024/client-abc/assets/images/
+# Deploy a web application with all its assets
+curl -X PUT -F "file=@webapp-v2.1.tar.gz" http://localhost:8000/deployments/webapp/v2.1
+# Extracts: /tmp/hermes_files/deployments/webapp/v2.1/
+#   ├── static/css/
+#   ├── static/js/
+#   ├── templates/
+#   ├── app.py
+#   └── requirements.txt
 ```
 
-### File System Prototyping
-Use during development to quickly create directory structures for testing:
+### Configuration Management
+Deploy configuration bundles to specific environments:
 
 ```bash
-# Set up a complex directory structure for testing
-curl -X PUT http://localhost:8000/app/data/users/profiles
-curl -X PUT http://localhost:8000/app/data/users/settings  
-curl -X PUT http://localhost:8000/app/logs/2024/10
-# Creates complete directory tree structure
+# Deploy environment-specific configurations
+curl -X PUT -F "file=@prod-config.tar.gz" http://localhost:8000/config/production
+curl -X PUT -F "file=@staging-config.tar.gz" http://localhost:8000/config/staging
+# Each creates complete configuration directory structure
 ```
 
-### Webhook-Driven Directory Creation
-Create directories based on webhook events:
+### Content Publishing
+Publish website content or documentation with full directory structure:
 
 ```bash
-# Webhook creates directory based on event data
-curl -X PUT http://localhost:8000/webhooks/user-123/profile-updated \
-     -H "Content-Type: application/json" \
-     -d '{"user_id": "123", "event": "profile_updated"}'
-# Creates: /tmp/hermes_files/webhooks/user-123/profile-updated/
+# Publish documentation site
+curl -X PUT -F "file=@docs-site.tar.gz" http://localhost:8000/sites/documentation
+# Extracts: /tmp/hermes_files/sites/documentation/
+#   ├── index.html
+#   ├── api/
+#   ├── guides/
+#   └── assets/
 ```
 
-### Development & Testing
-Test directory creation logic and verify filesystem operations:
+### Development Workflows
+Deploy development builds with their complete project structure:
 
 ```bash
-# Test your application's directory creation needs
-curl -X PUT http://localhost:8000/api/v2/organizations/456/projects/789/files
+# Deploy a development build for testing
+curl -X PUT -F "file=@feature-branch.tar.gz" http://localhost:8000/dev/feature-xyz
+# Creates complete development environment structure
+```
+
+### Backup Restoration
+Restore archived content to specific locations:
+
+```bash
+# Restore from backup archive
+curl -X PUT -F "file=@backup-2024-10-28.tar.gz" http://localhost:8000/restore/2024-10-28
+# Restores complete backed-up directory structure
 ```
 
 ## Development
@@ -247,12 +269,14 @@ ls -la /tmp/hermes_files/test/
 
 ## Configuration
 
-### Directory Configuration
+### Extraction Configuration
 
 - **Base Directory**: `/tmp/hermes_files/` (hardcoded in the current version)
 - **Directory Permissions**: Created with default permissions (755)
 - **Path Handling**: Safely handles nested paths, special characters, and edge cases
-- **Idempotent Operation**: Multiple requests to the same path are safe and won't cause errors
+- **Content Replacement**: Existing content is completely removed before new extraction
+- **Archive Validation**: Only tar.gz and .tgz files accepted, with security path validation
+- **Structure Preservation**: Complete internal directory structure of archives is maintained
 
 ### Environment Variables
 
@@ -284,16 +308,11 @@ This project is dual-licensed:
 
 See `LICENSE.md` for full details.
 
-## Migration from Echo Service
+## Migration from Directory Creation Service
 
-**⚠️ Breaking Change**: This version changes the behavior from echoing paths to actually creating directories on the filesystem.
+**⚠️ Breaking Change**: This version changes the behavior from simple directory creation to tar.gz file extraction.
 
-**Previous behavior** (echo service):
-```json
-{"endpoint": "/users", "method": "PUT"}
-```
-
-**New behavior** (directory creation):
+**Previous behavior** (directory creation):
 ```json
 {
   "endpoint": "/users",
@@ -303,7 +322,26 @@ See `LICENSE.md` for full details.
 }
 ```
 
-If you need the old echo behavior, please use an earlier version of the service.
+**New behavior** (tar.gz extraction):
+```json
+{
+  "endpoint": "/users",
+  "method": "PUT", 
+  "created_path": "/tmp/hermes_files/users",
+  "status": "extracted",
+  "filename": "archive.tar.gz",
+  "file_size": 1234,
+  "extracted_items": ["file1.txt", "subdir"]
+}
+```
+
+**Key Changes:**
+- PUT requests now require a tar.gz file upload via `multipart/form-data`
+- The service extracts the archive contents to the target path
+- Existing content at the target path is removed before extraction
+- Response includes extraction details like filename, file size, and extracted items
+
+If you need the old directory creation behavior, please use an earlier version of the service.
 
 ## Support & Contributing
 

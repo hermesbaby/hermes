@@ -2,11 +2,36 @@ import pytest
 import os
 import pathlib
 import tempfile
+import tarfile
+import io
+import shutil
 from fastapi.testclient import TestClient
 from hermesbaby.hermes.main import app, BASE_DIRECTORY
 
 # Create a test client
 client = TestClient(app)
+
+
+def create_test_tarball(files_dict):
+    """Create a test tar.gz file with specified files and content"""
+    tar_buffer = io.BytesIO()
+
+    with tarfile.open(fileobj=tar_buffer, mode='w:gz') as tar:
+        for filename, content in files_dict.items():
+            # Create file-like object from content
+            content_bytes = content.encode(
+                'utf-8') if isinstance(content, str) else content
+            file_buffer = io.BytesIO(content_bytes)
+
+            # Create TarInfo object
+            tarinfo = tarfile.TarInfo(name=filename)
+            tarinfo.size = len(content_bytes)
+
+            # Add to tar
+            tar.addfile(tarinfo, file_buffer)
+
+    tar_buffer.seek(0)
+    return tar_buffer.getvalue()
 
 
 class TestHealthEndpoint:
@@ -24,123 +49,171 @@ class TestHealthEndpoint:
         assert isinstance(data["version"], str)
 
 
-class TestPutEndpoints:
-    """Test PUT endpoints that create paths on the filesystem"""
+class TestPutTarballEndpoints:
+    """Test PUT endpoints that extract tar.gz files"""
 
-    def test_put_root_endpoint(self):
-        """Test PUT request to root endpoint / works via catch-all handler"""
-        response = client.put("/")
+    def test_put_simple_tarball(self):
+        """Test PUT request with a simple tar.gz file"""
+        # Create test tarball with a simple file
+        test_files = {
+            "test.txt": "Hello, World!"
+        }
+        tarball_content = create_test_tarball(test_files)
+
+        files = {"file": ("test.tar.gz", io.BytesIO(
+            tarball_content), "application/gzip")}
+        response = client.put("/test-simple", files=files)
 
         assert response.status_code == 200
         data = response.json()
-        assert data["endpoint"] == "/"
+        assert data["endpoint"] == "/test-simple"
         assert data["method"] == "PUT"
         assert "created_path" in data
-        assert data["status"] == "created"
+        assert data["status"] == "extracted"
+        assert data["filename"] == "test.tar.gz"
+        assert "extracted_items" in data
+        assert "test.txt" in data["extracted_items"]
 
-    def test_put_single_path(self):
-        """Test PUT request to single path endpoint"""
-        response = client.put("/users")
+        # Verify the file was actually extracted
+        created_path = pathlib.Path(data["created_path"])
+        extracted_file = created_path / "test.txt"
+        assert extracted_file.exists()
+        assert extracted_file.read_text() == "Hello, World!"
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["endpoint"] == "/users"
-        assert data["method"] == "PUT"
-        assert "created_path" in data
-        assert data["status"] == "created"
-        assert data["created_path"].endswith("/users")
+        # Clean up
+        if created_path.exists():
+            shutil.rmtree(created_path)
 
-    def test_put_nested_path(self):
-        """Test PUT request to nested path endpoint"""
-        response = client.put("/api/v1/users")
+    def test_put_nested_structure_tarball(self):
+        """Test PUT request with tar.gz containing nested directory structure"""
+        test_files = {
+            "app/main.py": "print('Hello from main!')",
+            "app/utils/helper.py": "def help(): pass",
+            "config/settings.json": '{"debug": true}',
+            "README.md": "# Test Project"
+        }
+        tarball_content = create_test_tarball(test_files)
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["endpoint"] == "/api/v1/users"
-        assert data["method"] == "PUT"
-        assert "created_path" in data
-        assert data["status"] == "created"
-        assert data["created_path"].endswith("/api/v1/users")
-
-    def test_put_path_with_numbers(self):
-        """Test PUT request to path with numbers"""
-        response = client.put("/users/123")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["endpoint"] == "/users/123"
-        assert data["method"] == "PUT"
-        assert "created_path" in data
-        assert data["status"] == "created"
-        assert data["created_path"].endswith("/users/123")
-
-    def test_put_path_with_special_chars(self):
-        """Test PUT request to path with special characters"""
-        response = client.put("/api/v1/users-data_test")
+        files = {"file": ("nested.tar.gz", io.BytesIO(
+            tarball_content), "application/gzip")}
+        response = client.put("/projects/myapp", files=files)
 
         assert response.status_code == 200
         data = response.json()
-        assert data["endpoint"] == "/api/v1/users-data_test"
-        assert data["method"] == "PUT"
-        assert "created_path" in data
-        assert data["status"] == "created"
-        assert data["created_path"].endswith("/api/v1/users-data_test")
+        assert data["status"] == "extracted"
+        assert data["filename"] == "nested.tar.gz"
 
-    def test_put_deep_nested_path(self):
-        """Test PUT request to deeply nested path"""
-        response = client.put("/api/v1/organizations/123/users/456/profiles")
+        # Verify nested structure was created
+        created_path = pathlib.Path(data["created_path"])
+        assert (created_path / "app" / "main.py").exists()
+        assert (created_path / "app" / "utils" / "helper.py").exists()
+        assert (created_path / "config" / "settings.json").exists()
+        assert (created_path / "README.md").exists()
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["endpoint"] == "/api/v1/organizations/123/users/456/profiles"
-        assert data["method"] == "PUT"
-        assert "created_path" in data
-        assert data["status"] == "created"
-        assert data["created_path"].endswith(
-            "/api/v1/organizations/123/users/456/profiles")
+        # Verify file contents
+        assert (created_path / "app" /
+                "main.py").read_text() == "print('Hello from main!')"
+        assert (created_path / "config" /
+                "settings.json").read_text() == '{"debug": true}'
 
-    def test_put_with_json_body(self):
-        """Test PUT request with JSON body - should still create path"""
-        json_data = {"name": "test", "value": 123}
-        response = client.put("/data", json=json_data)
+        # Clean up
+        if created_path.exists():
+            shutil.rmtree(created_path)
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["endpoint"] == "/data"
-        assert data["method"] == "PUT"
-        assert "created_path" in data
-        assert data["status"] == "created"
+    def test_put_replaces_existing_content(self):
+        """Test that PUT request replaces existing content at the path"""
+        # First, create some existing content
+        test_path = pathlib.Path(BASE_DIRECTORY) / "replace-test"
+        test_path.mkdir(parents=True, exist_ok=True)
+        (test_path / "old_file.txt").write_text("This should be removed")
+        (test_path / "old_dir").mkdir(exist_ok=True)
+        (test_path / "old_dir" / "nested.txt").write_text("Also should be removed")
 
-    def test_put_with_headers(self):
-        """Test PUT request with custom headers - should still create path"""
-        headers = {"X-Custom-Header": "test-value"}
-        response = client.put("/custom", headers=headers)
+        # Now upload new content via tar.gz
+        test_files = {
+            "new_file.txt": "New content here",
+            "new_dir/new_nested.txt": "New nested content"
+        }
+        tarball_content = create_test_tarball(test_files)
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["endpoint"] == "/custom"
-        assert data["method"] == "PUT"
-        assert "created_path" in data
-        assert data["status"] == "created"
-
-    def test_directory_actually_created(self):
-        """Test that directories are actually created on the filesystem"""
-        test_path = "/test/filesystem/creation"
-        response = client.put(test_path)
+        files = {"file": ("replacement.tar.gz", io.BytesIO(
+            tarball_content), "application/gzip")}
+        response = client.put("/replace-test", files=files)
 
         assert response.status_code == 200
         data = response.json()
-        created_path = data["created_path"]
+        assert data["status"] == "extracted"
 
-        # Verify the directory actually exists
-        assert os.path.exists(created_path)
-        assert os.path.isdir(created_path)
+        # Verify old content is gone and new content exists
+        created_path = pathlib.Path(data["created_path"])
+        assert not (created_path / "old_file.txt").exists()
+        assert not (created_path / "old_dir").exists()
+        assert (created_path / "new_file.txt").exists()
+        assert (created_path / "new_dir" / "new_nested.txt").exists()
 
-        # Clean up the test directory
-        import shutil
-        test_base = pathlib.Path(BASE_DIRECTORY) / "test"
-        if test_base.exists():
-            shutil.rmtree(test_base)
+        # Clean up
+        if created_path.exists():
+            shutil.rmtree(created_path)
+
+    def test_put_invalid_file_type(self):
+        """Test PUT request with non-tar.gz file returns error"""
+        # Create a regular text file
+        files = {"file": ("test.txt", io.BytesIO(
+            b"Not a tarball"), "text/plain")}
+        response = client.put("/invalid-test", files=files)
+
+        assert response.status_code == 400
+        data = response.json()
+        assert "must be a tar.gz" in data["detail"]
+
+    def test_put_tgz_extension(self):
+        """Test PUT request with .tgz extension works"""
+        test_files = {
+            "test.txt": "TGZ test content"
+        }
+        tarball_content = create_test_tarball(test_files)
+
+        files = {"file": ("test.tgz", io.BytesIO(
+            tarball_content), "application/gzip")}
+        response = client.put("/tgz-test", files=files)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "extracted"
+        assert data["filename"] == "test.tgz"
+
+        # Clean up
+        created_path = pathlib.Path(data["created_path"])
+        if created_path.exists():
+            shutil.rmtree(created_path)
+
+    def test_put_unsafe_paths_rejected(self):
+        """Test that tar.gz files with unsafe paths are rejected"""
+        # Create tarball with unsafe path
+        tar_buffer = io.BytesIO()
+
+        with tarfile.open(fileobj=tar_buffer, mode='w:gz') as tar:
+            # Try to create a file with absolute path (unsafe)
+            content = b"Malicious content"
+            file_buffer = io.BytesIO(content)
+            # Absolute path - unsafe
+            tarinfo = tarfile.TarInfo(name="/etc/passwd")
+            tarinfo.size = len(content)
+            tar.addfile(tarinfo, file_buffer)
+
+        tar_buffer.seek(0)
+        files = {"file": ("malicious.tar.gz", tar_buffer, "application/gzip")}
+        response = client.put("/security-test", files=files)
+
+        assert response.status_code == 400
+        data = response.json()
+        assert "Unsafe path" in data["detail"]
+
+    def test_put_no_file_provided(self):
+        """Test PUT request without file returns validation error"""
+        response = client.put("/no-file-test")
+
+        assert response.status_code == 422  # FastAPI validation error
 
 
 class TestOtherHttpMethods:
@@ -165,16 +238,6 @@ class TestOtherHttpMethods:
         """Test PATCH request to endpoint with PUT handler returns 405 Method Not Allowed"""
         response = client.patch("/undefined")
         assert response.status_code == 405
-
-    def test_put_root_handled_by_catch_all(self):
-        """Test PUT request to root endpoint is handled by catch-all handler"""
-        response = client.put("/")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["endpoint"] == "/"
-        assert data["method"] == "PUT"
-        assert "created_path" in data
-        assert data["status"] == "created"
 
 
 class TestApiMetadata:
@@ -207,13 +270,27 @@ class TestApiMetadata:
     "/path_with_underscores",
     "/123numbers456",
 ])
-def test_put_various_endpoints(endpoint):
-    """Parametrized test for various PUT endpoints (including root)"""
-    response = client.put(endpoint)
+def test_put_various_endpoints_with_tarball(endpoint):
+    """Parametrized test for various PUT endpoints with tar.gz files"""
+    test_files = {
+        "README.md": f"Test content for {endpoint}",
+        "data/info.txt": "Some nested data"
+    }
+    tarball_content = create_test_tarball(test_files)
+
+    files = {"file": ("test.tar.gz", io.BytesIO(
+        tarball_content), "application/gzip")}
+    response = client.put(endpoint, files=files)
 
     assert response.status_code == 200
     data = response.json()
     assert data["endpoint"] == endpoint
     assert data["method"] == "PUT"
     assert "created_path" in data
-    assert data["status"] == "created"
+    assert data["status"] == "extracted"
+    assert data["filename"] == "test.tar.gz"
+
+    # Clean up
+    created_path = pathlib.Path(data["created_path"])
+    if created_path.exists():
+        shutil.rmtree(created_path)
