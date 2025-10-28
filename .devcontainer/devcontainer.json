@@ -1,20 +1,15 @@
 {
   "name": "hermesbaby-hermes-dev",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
-
   // Mount local source code into /workspace
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
-
   // Run as a non-root user by default
   "remoteUser": "vscode",
-
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
-
-  "postCreateCommand": "pip install poetry && poetry install",
-
+  "postCreateCommand": "pip install poetry",
   "customizations": {
     "vscode": {
       "settings": {
@@ -31,11 +26,9 @@
       ]
     }
   },
-
   "forwardPorts": [
     8000
   ],
-
   "portsAttributes": {
     "8000": {
       "label": "Hermes FastAPI",
