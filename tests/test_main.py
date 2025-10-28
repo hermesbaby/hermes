@@ -53,12 +53,20 @@ class TestConfiguration:
         # Temporarily remove the environment variable and try to import
         import subprocess
         import sys
+        import os
+
+        # Get the project root directory dynamically
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))
 
         # Run a subprocess that tries to import without the env var
+        # Create clean environment without HERMES_BASE_DIRECTORY
+        clean_env = {k: v for k, v in os.environ.items()
+                     if not k.startswith('HERMES_')}
         result = subprocess.run([
             sys.executable, "-c",
             "from hermesbaby.hermes.main import settings"
-        ], capture_output=True, text=True, cwd="/workspace")
+        ], capture_output=True, text=True, cwd=project_root, env=clean_env)
 
         # Should fail with non-zero exit code
         assert result.returncode != 0
@@ -72,13 +80,18 @@ class TestConfiguration:
         """Test that custom base directory is properly loaded from environment"""
         import subprocess
         import sys
+        import os
+
+        # Get the project root directory dynamically
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))
 
         # Run a subprocess with custom environment variable
         env = {"HERMES_BASE_DIRECTORY": "/custom/test/path"}
         result = subprocess.run([
             sys.executable, "-c",
             "from hermesbaby.hermes.main import settings; print(settings.base_directory)"
-        ], capture_output=True, text=True, cwd="/workspace", env={**os.environ, **env})
+        ], capture_output=True, text=True, cwd=project_root, env={**os.environ, **env})
 
         # Should succeed
         assert result.returncode == 0
