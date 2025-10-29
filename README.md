@@ -607,44 +607,6 @@ This project is dual-licensed:
 
 See `LICENSE.md` for full details.
 
-## Migration from Directory Creation Service
-
-**⚠️ Breaking Change**: This version changes the behavior from simple directory creation to archive file extraction.
-
-**Previous behavior** (directory creation):
-```json
-{
-  "endpoint": "/users",
-  "method": "PUT", 
-  "created_path": "/tmp/hermes_files/users",
-  "status": "created"
-}
-```
-
-**New behavior** (archive extraction):
-```json
-{
-  "endpoint": "/users",
-  "method": "PUT", 
-  "created_path": "$HERMES_BASE_DIRECTORY/users",
-  "status": "extracted",
-  "archive_type": "zip",
-  "filename": "archive.zip",
-  "file_size": 1234,
-  "extracted_items": ["file1.txt", "subdir"],
-  "total_extracted_paths": 5
-}
-```
-
-**Key Changes:**
-- PUT requests now require an archive file upload (tar.gz, ZIP, or 7z) via `multipart/form-data`
-- The service extracts archive contents to the target path
-- Supports multiple archive formats: tar.gz, .tgz, ZIP, and 7z
-- Existing content at the target path is removed before extraction
-- Response includes extraction details like archive type, filename, file size, extracted items, and total paths count
-
-If you need the old directory creation behavior, please use an earlier version of the service.
-
 ## Troubleshooting
 
 ### Common Issues
