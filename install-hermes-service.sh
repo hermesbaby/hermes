@@ -2,6 +2,15 @@
 
 # Hermes Systemd Service Installation Script
 # This script sets up Hermes as a systemd service with API token authentication
+#
+# Environment Variables:
+#   HERMES_API_TOKEN  - Custom API token (generated if not provided)
+#   HERMES_DATA_DIR   - Custom data directory (defaults to /var/www/html)
+#
+# Usage Examples:
+#   sudo ./install-hermes-service.sh
+#   sudo HERMES_DATA_DIR=/custom/path ./install-hermes-service.sh
+#   sudo HERMES_API_TOKEN=mytoken HERMES_DATA_DIR=/custom/path ./install-hermes-service.sh
 
 set -e  # Exit on any error
 
@@ -57,7 +66,7 @@ SERVICE_NAME="hermes"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 ENV_DIR="/etc/hermes"
 ENV_FILE="${ENV_DIR}/hermes.env"
-DATA_DIR="/var/www/html"
+DATA_DIR="${HERMES_DATA_DIR:-/var/www/html}"
 SYSTEM_USER="hermes"
 
 # Generate API token if not provided
@@ -69,6 +78,13 @@ else
     print_step "Using provided API token: ${HERMES_API_TOKEN:0:16}..."
 fi
 
+# Check data directory configuration
+if [ "$DATA_DIR" = "/var/www/html" ]; then
+    print_step "Using default data directory: $DATA_DIR"
+else
+    print_step "Using custom data directory: $DATA_DIR"
+fi
+
 # Create environment directory
 print_step "Creating environment directory..."
 mkdir -p "$ENV_DIR"
@@ -77,9 +93,10 @@ chmod 700 "$ENV_DIR"
 # Create environment file
 print_step "Creating environment file..."
 cat > "$ENV_FILE" << EOF
-# Hermes API Token Configuration
+# Hermes Configuration
 # Generated on $(date)
 HERMES_API_TOKEN=$HERMES_API_TOKEN
+HERMES_DATA_DIR=$DATA_DIR
 EOF
 
 # Secure the environment file
@@ -128,7 +145,7 @@ ExecStartPre=-$CONTAINER_COMMAND rm $SERVICE_NAME
 ExecStart=$CONTAINER_COMMAND run -d \\
     --name $SERVICE_NAME \\
     --user $HERMES_UID:$HERMES_GID \\
-    -v $DATA_DIR:/www-root \\
+    -v "\${HERMES_DATA_DIR}":/www-root \\
     -e HERMES_BASE_DIRECTORY="/www-root" \\
     -e HERMES_API_TOKEN="\${HERMES_API_TOKEN}" \\
     -p 8000:8000 \\
@@ -161,7 +178,7 @@ ExecStartPre=-$CONTAINER_COMMAND rm $SERVICE_NAME
 ExecStart=$CONTAINER_COMMAND run -d \\
     --name $SERVICE_NAME \\
     --user $HERMES_UID:$HERMES_GID \\
-    -v $DATA_DIR:/www-root \\
+    -v "\${HERMES_DATA_DIR}":/www-root \\
     -e HERMES_BASE_DIRECTORY="/www-root" \\
     -e HERMES_API_TOKEN="\${HERMES_API_TOKEN}" \\
     -p 8000:8000 \\
@@ -248,7 +265,7 @@ echo "     -H \"Authorization: Bearer $HERMES_API_TOKEN\" \\"
 echo "     http://localhost:8000/test/upload"
 echo
 echo "🔧 Additional Management:"
-echo "   # View API token"
+echo "   # View configuration (API token and data directory)"
 echo "   sudo cat /etc/hermes/hermes.env"
 echo "   # Update container image"
 echo "   sudo $CONTAINER_COMMAND pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest"
@@ -256,6 +273,15 @@ echo "   sudo systemctl restart $SERVICE_NAME"
 echo "   # Remove service completely"
 echo "   sudo systemctl stop $SERVICE_NAME && sudo systemctl disable $SERVICE_NAME"
 echo "   sudo rm /etc/systemd/system/$SERVICE_NAME.service && sudo systemctl daemon-reload"
+echo
+echo "🔄 Update Configuration:"
+echo "   # To change API token or data directory after installation:"
+echo "   sudo nano /etc/hermes/hermes.env"
+echo "   sudo systemctl restart $SERVICE_NAME"
+echo
+echo "   # If changing data directory, also update ownership:"
+echo "   sudo chown -R \$(id -u hermes):\$(id -g hermes) /new/data/path"
+echo "   sudo chmod -R 755 /new/data/path"
 echo
 echo "⚠️  Security Notes:"
 echo "   - Environment file is secured with 600 permissions"

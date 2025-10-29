@@ -121,17 +121,28 @@ For production deployments, install Hermes as a systemd service:
 curl -O https://raw.githubusercontent.com/hermesbaby/hermes/main/install-hermes-service.sh
 chmod +x install-hermes-service.sh
 
-# Run as root to install
+# Run as root to install with default settings
 sudo ./install-hermes-service.sh
+
+# Or customize the installation with environment variables
+sudo HERMES_DATA_DIR=/custom/path ./install-hermes-service.sh
+sudo HERMES_API_TOKEN=mytoken HERMES_DATA_DIR=/opt/hermes ./install-hermes-service.sh
 ```
+
+**Installation Options:**
+- **Default installation**: Uses `/var/www/html` as data directory and generates a random API token
+- **Custom data directory**: Set `HERMES_DATA_DIR` environment variable before running
+- **Custom API token**: Set `HERMES_API_TOKEN` environment variable before running
+- **Both custom**: Set both environment variables for full customization
 
 The installation script automatically detects your container runtime (Docker or Podman) and configures the service accordingly.
 
 This will:
 - Create a dedicated `hermes` system user
-- Generate a secure API token
+- Generate a secure API token (or use provided one)
+- Configure data directory (default: `/var/www/html`, or custom path)
 - Set up systemd service with auto-start
-- Configure proper file permissions
+- Configure proper file permissions and ownership
 - Detect and configure for Docker or Podman
 - Start and test the service
 
@@ -148,6 +159,20 @@ sudo systemctl status hermes    # Check status
 sudo journalctl -u hermes -f    # View logs
 ```
 
+**Post-Installation Configuration:**
+```bash
+# View current configuration (API token and data directory)
+sudo cat /etc/hermes/hermes.env
+
+# Update API token or data directory after installation
+sudo nano /etc/hermes/hermes.env
+sudo systemctl restart hermes
+
+# If changing data directory, also update ownership
+sudo chown -R $(id -u hermes):$(id -g hermes) /new/data/path
+sudo chmod -R 755 /new/data/path
+```
+
 ### Environment Configuration
 
 The service runs on port 8000 by default and **requires** the `HERMES_BASE_DIRECTORY` environment variable to be set.
@@ -159,6 +184,22 @@ The service runs on port 8000 by default and **requires** the `HERMES_BASE_DIREC
 #### Optional Environment Variables
 
 - **`HERMES_API_TOKEN`**: **Optional**. API token for securing PUT requests. When set, all PUT requests must include a valid token via `Authorization: Bearer <token>` or `X-API-Token: <token>` header. Health endpoint remains unprotected.
+
+#### Systemd Service Environment Variables
+
+When using the systemd service installation script, these environment variables can be set before installation:
+
+- **`HERMES_DATA_DIR`**: **Optional**. Custom data directory for the systemd service (defaults to `/var/www/html`). Set this before running the installation script to customize the data directory location.
+- **`HERMES_API_TOKEN`**: **Optional**. Custom API token for the systemd service. If not provided, a secure random token is generated automatically.
+
+**Example:**
+```bash
+# Install with custom data directory
+sudo HERMES_DATA_DIR=/opt/hermes-data ./install-hermes-service.sh
+
+# Install with both custom token and data directory
+sudo HERMES_API_TOKEN=my-secure-token HERMES_DATA_DIR=/opt/hermes ./install-hermes-service.sh
+```
 
 #### Usage Examples
 
@@ -466,6 +507,47 @@ docker exec <container_id> ls -la /app/test/test/endpoint-*/
 - **Content Replacement**: Existing content is completely removed before new extraction
 - **Archive Validation**: tar.gz, .tgz, ZIP, and 7z files accepted, with security path validation for all formats
 - **Structure Preservation**: Complete internal directory structure of all archive formats is maintained
+
+### Systemd Service Configuration Updates
+
+After installing Hermes as a systemd service, you can update the configuration by modifying the environment file:
+
+**Configuration File Location:** `/etc/hermes/hermes.env`
+
+**Available Settings:**
+- `HERMES_API_TOKEN`: API authentication token
+- `HERMES_DATA_DIR`: Data directory path where archives are extracted
+
+**Update Process:**
+1. Edit the configuration file: `sudo nano /etc/hermes/hermes.env`
+2. Restart the service: `sudo systemctl restart hermes`
+3. If changing data directory, ensure proper ownership:
+   ```bash
+   sudo chown -R $(id -u hermes):$(id -g hermes) /new/data/path
+   sudo chmod -R 755 /new/data/path
+   ```
+
+**Example Configuration Update:**
+```bash
+# View current configuration
+sudo cat /etc/hermes/hermes.env
+
+# Example output:
+# HERMES_API_TOKEN=abc123def456...
+# HERMES_DATA_DIR=/var/www/html
+
+# Edit configuration
+sudo nano /etc/hermes/hermes.env
+
+# Change to:
+# HERMES_API_TOKEN=my-new-secure-token
+# HERMES_DATA_DIR=/opt/hermes-storage
+
+# Apply changes
+sudo chown -R $(id -u hermes):$(id -g hermes) /opt/hermes-storage
+sudo chmod -R 755 /opt/hermes-storage
+sudo systemctl restart hermes
+```
 
 ### Environment Variables
 
