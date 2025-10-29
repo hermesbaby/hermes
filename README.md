@@ -125,12 +125,19 @@ chmod +x install-hermes-service.sh
 sudo ./install-hermes-service.sh
 ```
 
+The installation script automatically detects your container runtime (Docker or Podman) and configures the service accordingly.
+
 This will:
 - Create a dedicated `hermes` system user
 - Generate a secure API token
 - Set up systemd service with auto-start
 - Configure proper file permissions
+- Detect and configure for Docker or Podman
 - Start and test the service
+
+**Container Runtime Support:**
+- ✅ **Docker**: Full support with `docker.service` dependencies
+- ✅ **Podman**: Full support with `network-online.target` dependencies
 
 **Service Management:**
 ```bash
@@ -571,6 +578,11 @@ docker run -d \
   -p 8000:8000 \
   docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
 ```
+
+**Podman/Docker Service Issues**: If you encounter `Unit docker.service not found` errors during systemd service installation, this means you're using Podman instead of Docker. The installation script automatically detects this, but if you're having issues:
+
+1. **For new installations**: Re-run the installation script - it will detect Podman automatically
+2. **For existing installations**: The service file needs to be updated to use Podman instead of Docker dependencies
 
 For more troubleshooting information, see [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
