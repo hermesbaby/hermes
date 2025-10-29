@@ -36,6 +36,22 @@ fi
 
 print_step "Setting up Hermes systemd service..."
 
+# Detect container runtime (Docker or Podman)
+if command -v docker >/dev/null 2>&1 && systemctl is-active --quiet docker.service 2>/dev/null; then
+    CONTAINER_RUNTIME="docker"
+    CONTAINER_SERVICE="docker.service"
+    CONTAINER_COMMAND="/usr/bin/docker"
+    print_step "Detected Docker as container runtime"
+elif command -v podman >/dev/null 2>&1; then
+    CONTAINER_RUNTIME="podman"
+    CONTAINER_SERVICE=""  # Podman doesn't require a system service
+    CONTAINER_COMMAND="/usr/bin/podman"
+    print_step "Detected Podman as container runtime"
+else
+    print_error "Neither Docker nor Podman found. Please install one of them first."
+    exit 1
+fi
+
 # Configuration
 SERVICE_NAME="hermes"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -93,7 +109,10 @@ print_success "Data directory configured for user $SYSTEM_USER"
 
 # Create systemd service file
 print_step "Creating systemd service file..."
-cat > "$SERVICE_FILE" << EOF
+
+# Create different service files based on container runtime
+if [ "$CONTAINER_RUNTIME" = "docker" ]; then
+    cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=Hermes Archive Extraction Service
 Documentation=https://github.com/hermesbaby/hermes
@@ -104,9 +123,9 @@ Requires=docker.service
 Type=forking
 RemainAfterExit=yes
 EnvironmentFile=$ENV_FILE
-ExecStartPre=-/usr/bin/docker stop $SERVICE_NAME
-ExecStartPre=-/usr/bin/docker rm $SERVICE_NAME
-ExecStart=/usr/bin/docker run -d \\
+ExecStartPre=-$CONTAINER_COMMAND stop $SERVICE_NAME
+ExecStartPre=-$CONTAINER_COMMAND rm $SERVICE_NAME
+ExecStart=$CONTAINER_COMMAND run -d \\
     --name $SERVICE_NAME \\
     --user $HERMES_UID:$HERMES_GID \\
     -v $DATA_DIR:/www-root \\
@@ -115,8 +134,8 @@ ExecStart=/usr/bin/docker run -d \\
     -p 8000:8000 \\
     --restart unless-stopped \\
     docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
-ExecStop=/usr/bin/docker stop $SERVICE_NAME
-ExecStopPost=/usr/bin/docker rm $SERVICE_NAME
+ExecStop=$CONTAINER_COMMAND stop $SERVICE_NAME
+ExecStopPost=$CONTAINER_COMMAND rm $SERVICE_NAME
 TimeoutStartSec=0
 Restart=on-failure
 RestartSec=5
@@ -124,6 +143,40 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+else
+    # Podman service file (no service dependency needed)
+    cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=Hermes Archive Extraction Service
+Documentation=https://github.com/hermesbaby/hermes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+RemainAfterExit=yes
+EnvironmentFile=$ENV_FILE
+ExecStartPre=-$CONTAINER_COMMAND stop $SERVICE_NAME
+ExecStartPre=-$CONTAINER_COMMAND rm $SERVICE_NAME
+ExecStart=$CONTAINER_COMMAND run -d \\
+    --name $SERVICE_NAME \\
+    --user $HERMES_UID:$HERMES_GID \\
+    -v $DATA_DIR:/www-root \\
+    -e HERMES_BASE_DIRECTORY="/www-root" \\
+    -e HERMES_API_TOKEN="\${HERMES_API_TOKEN}" \\
+    -p 8000:8000 \\
+    --restart unless-stopped \\
+    docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+ExecStop=$CONTAINER_COMMAND stop $SERVICE_NAME
+ExecStopPost=$CONTAINER_COMMAND rm $SERVICE_NAME
+TimeoutStartSec=0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+fi
 
 print_success "Service file created at $SERVICE_FILE"
 
@@ -134,9 +187,9 @@ systemctl daemon-reload
 print_step "Enabling Hermes service..."
 systemctl enable "$SERVICE_NAME"
 
-# Pull the Docker image
-print_step "Pulling Hermes Docker image..."
-docker pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+# Pull the container image
+print_step "Pulling Hermes container image..."
+$CONTAINER_COMMAND pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
 
 # Start the service
 print_step "Starting Hermes service..."
@@ -197,8 +250,8 @@ echo
 echo "🔧 Additional Management:"
 echo "   # View API token"
 echo "   sudo cat /etc/hermes/hermes.env"
-echo "   # Update Docker image"
-echo "   sudo docker pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest"
+echo "   # Update container image"
+echo "   sudo $CONTAINER_COMMAND pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest"
 echo "   sudo systemctl restart $SERVICE_NAME"
 echo "   # Remove service completely"
 echo "   sudo systemctl stop $SERVICE_NAME && sudo systemctl disable $SERVICE_NAME"
