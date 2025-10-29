@@ -549,6 +549,63 @@ sudo chmod -R 755 /opt/hermes-storage
 sudo systemctl restart hermes
 ```
 
+### Container Image Updates
+
+After installing Hermes as a systemd service, you can update to the latest container image version:
+
+**Quick Update (Recommended):**
+```bash
+# Pull the latest container image
+sudo podman pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+# OR if using Docker:
+sudo docker pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+
+# Restart the service to use the new image
+sudo systemctl restart hermes
+
+# Verify the update
+sudo systemctl status hermes
+curl http://localhost:8000/health
+```
+
+**Manual Update Process:**
+```bash
+# Stop the service
+sudo systemctl stop hermes
+
+# Pull the latest image
+sudo podman pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+
+# Start the service with the new image
+sudo systemctl start hermes
+
+# Check service status and version
+sudo systemctl status hermes
+curl -s http://localhost:8000/health | grep version
+```
+
+**Complete Update with Verification:**
+```bash
+echo "Updating Hermes container..."
+sudo podman pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
+sudo systemctl restart hermes
+
+echo "Verifying update..."
+sudo systemctl status hermes --no-pager -l
+curl http://localhost:8000/health
+
+echo "Cleaning up old images (optional)..."
+sudo podman image prune -f
+
+echo "Update completed successfully!"
+```
+
+**Notes:**
+- Your API token and configuration remain unchanged
+- The service automatically uses the `:latest` tag, so pulling updates the image
+- Both Docker and Podman are supported - use the appropriate command for your system
+- Old unused images can be removed with `sudo podman image prune` or `sudo docker image prune`
+
 ### Environment Variables
 
 #### Required Variables
