@@ -582,6 +582,10 @@ class TestApiTokenSecurity:
         """Test PUT request succeeds when no API token is configured"""
         # Ensure no token is configured in settings
         with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY}, clear=True):
+            # Ensure the test directory exists since we cleared the environment
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
             from hermesbaby.hermes.main import app
             test_client = TestClient(app)
 
@@ -606,6 +610,10 @@ class TestApiTokenSecurity:
             "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
             "HERMES_API_TOKEN": TEST_API_TOKEN
         }, clear=True):
+            # Ensure the test directory exists since we cleared the environment
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
             # Force reload the module to pick up new environment
             import hermesbaby.hermes.main as main_module
             importlib.reload(main_module)
@@ -627,6 +635,10 @@ class TestApiTokenSecurity:
             "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
             "HERMES_API_TOKEN": TEST_API_TOKEN
         }, clear=True):
+            # Ensure the test directory exists since we cleared the environment
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
             # Force reload the module to pick up new environment
             import hermesbaby.hermes.main as main_module
             importlib.reload(main_module)
@@ -657,6 +669,10 @@ class TestApiTokenSecurity:
             "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
             "HERMES_API_TOKEN": TEST_API_TOKEN
         }, clear=True):
+            # Ensure the test directory exists since we cleared the environment
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
             # Force reload the module to pick up new environment
             import hermesbaby.hermes.main as main_module
             importlib.reload(main_module)
@@ -686,6 +702,10 @@ class TestApiTokenSecurity:
             "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
             "HERMES_API_TOKEN": TEST_API_TOKEN
         }, clear=True):
+            # Ensure the test directory exists since we cleared the environment
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
             # Force reload the module to pick up new environment
             import hermesbaby.hermes.main as main_module
             importlib.reload(main_module)
@@ -708,6 +728,10 @@ class TestApiTokenSecurity:
             "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
             "HERMES_API_TOKEN": TEST_API_TOKEN
         }, clear=True):
+            # Ensure the test directory exists since we cleared the environment
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
             # Force reload the module to pick up new environment
             import hermesbaby.hermes.main as main_module
             importlib.reload(main_module)
@@ -730,6 +754,10 @@ class TestApiTokenSecurity:
             "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
             "HERMES_API_TOKEN": TEST_API_TOKEN
         }, clear=True):
+            # Ensure the test directory exists since we cleared the environment
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
             # Force reload the module to pick up new environment
             import hermesbaby.hermes.main as main_module
             importlib.reload(main_module)
@@ -760,6 +788,10 @@ class TestApiTokenSecurity:
             "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
             "HERMES_API_TOKEN": TEST_API_TOKEN
         }, clear=True):
+            # Ensure the test directory exists since we cleared the environment
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
             # Force reload the module to pick up new environment
             import hermesbaby.hermes.main as main_module
             importlib.reload(main_module)
@@ -802,6 +834,9 @@ def test_put_various_endpoints_with_archives(endpoint, archive_info):
 
     # Ensure clean environment with no API token for these tests
     with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY}, clear=True):
+        # Ensure the test directory exists since we cleared the environment
+        pathlib.Path(TEST_BASE_DIRECTORY).mkdir(parents=True, exist_ok=True)
+
         import hermesbaby.hermes.main as main_module
         importlib.reload(main_module)
         test_client = TestClient(main_module.app)
