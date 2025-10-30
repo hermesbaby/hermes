@@ -6,11 +6,13 @@
 # Environment Variables:
 #   HERMES_API_TOKEN  - Custom API token (generated if not provided)
 #   HERMES_DATA_DIR   - Custom data directory (defaults to /var/www/html)
+#   HERMES_TEMP_DIR   - Custom temporary directory (defaults to HERMES_DATA_DIR)
 #
 # Usage Examples:
 #   sudo ./install-hermes-service.sh
 #   sudo HERMES_DATA_DIR=/custom/path ./install-hermes-service.sh
 #   sudo HERMES_API_TOKEN=mytoken HERMES_DATA_DIR=/custom/path ./install-hermes-service.sh
+#   sudo HERMES_TEMP_DIR=/tmp/hermes HERMES_DATA_DIR=/opt/data ./install-hermes-service.sh
 
 set -e  # Exit on any error
 
@@ -67,6 +69,7 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 ENV_DIR="/etc/hermes"
 ENV_FILE="${ENV_DIR}/hermes.env"
 DATA_DIR="${HERMES_DATA_DIR:-/var/www/html}"
+TEMP_DIR="${HERMES_TEMP_DIR:-$DATA_DIR}"
 SYSTEM_USER="hermes"
 
 # Generate API token if not provided
@@ -85,6 +88,13 @@ else
     print_step "Using custom data directory: $DATA_DIR"
 fi
 
+# Check temp directory configuration
+if [ "$TEMP_DIR" = "$DATA_DIR" ]; then
+    print_step "Using data directory for temporary files: $TEMP_DIR"
+else
+    print_step "Using custom temporary directory: $TEMP_DIR"
+fi
+
 # Create environment directory
 print_step "Creating environment directory..."
 mkdir -p "$ENV_DIR"
@@ -97,6 +107,7 @@ cat > "$ENV_FILE" << EOF
 # Generated on $(date)
 HERMES_API_TOKEN=$HERMES_API_TOKEN
 HERMES_DATA_DIR=$DATA_DIR
+HERMES_TEMP_DIR=$TEMP_DIR
 EOF
 
 # Secure the environment file
@@ -116,13 +127,6 @@ fi
 HERMES_UID=$(id -u "$SYSTEM_USER")
 HERMES_GID=$(id -g "$SYSTEM_USER")
 print_step "Using UID:GID $HERMES_UID:$HERMES_GID for container user mapping"
-
-# Ensure data directory exists and has correct ownership
-print_step "Setting up data directory ownership..."
-mkdir -p "$DATA_DIR"
-chown -R "$HERMES_UID:$HERMES_GID" "$DATA_DIR"
-chmod -R 755 "$DATA_DIR"
-print_success "Data directory configured for user $SYSTEM_USER"
 
 # Create systemd service file
 print_step "Creating systemd service file..."
@@ -146,7 +150,9 @@ ExecStart=$CONTAINER_COMMAND run -d \\
     --name $SERVICE_NAME \\
     --user $HERMES_UID:$HERMES_GID \\
     -v "\${HERMES_DATA_DIR}":/www-root \\
+    -v "\${HERMES_TEMP_DIR}":/temp-root \\
     -e HERMES_BASE_DIRECTORY="/www-root" \\
+    -e HERMES_TEMP_DIRECTORY="/temp-root" \\
     -e HERMES_API_TOKEN="\${HERMES_API_TOKEN}" \\
     -p 8000:8000 \\
     --restart unless-stopped \\
@@ -179,7 +185,9 @@ ExecStart=$CONTAINER_COMMAND run -d \\
     --name $SERVICE_NAME \\
     --user $HERMES_UID:$HERMES_GID \\
     -v "\${HERMES_DATA_DIR}":/www-root \\
+    -v "\${HERMES_TEMP_DIR}":/temp-root \\
     -e HERMES_BASE_DIRECTORY="/www-root" \\
+    -e HERMES_TEMP_DIRECTORY="/temp-root" \\
     -e HERMES_API_TOKEN="\${HERMES_API_TOKEN}" \\
     -p 8000:8000 \\
     --restart unless-stopped \\
@@ -240,6 +248,7 @@ echo "   Service name: $SERVICE_NAME"
 echo "   Service file: $SERVICE_FILE"
 echo "   Environment file: $ENV_FILE"
 echo "   Data directory: $DATA_DIR"
+echo "   Temp directory: $TEMP_DIR"
 echo "   API endpoint: http://localhost:8000"
 echo
 echo "🔑 Your API token: $HERMES_API_TOKEN"
@@ -265,7 +274,7 @@ echo "     -H \"Authorization: Bearer $HERMES_API_TOKEN\" \\"
 echo "     http://localhost:8000/test/upload"
 echo
 echo "🔧 Additional Management:"
-echo "   # View configuration (API token and data directory)"
+echo "   # View configuration (API token, data directory, and temp directory)"
 echo "   sudo cat /etc/hermes/hermes.env"
 echo "   # Update container image"
 echo "   sudo $CONTAINER_COMMAND pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest"
@@ -275,13 +284,13 @@ echo "   sudo systemctl stop $SERVICE_NAME && sudo systemctl disable $SERVICE_NA
 echo "   sudo rm /etc/systemd/system/$SERVICE_NAME.service && sudo systemctl daemon-reload"
 echo
 echo "🔄 Update Configuration:"
-echo "   # To change API token or data directory after installation:"
+echo "   # To change API token, data directory, or temp directory after installation:"
 echo "   sudo nano /etc/hermes/hermes.env"
 echo "   sudo systemctl restart $SERVICE_NAME"
 echo
-echo "   # If changing data directory, also update ownership:"
-echo "   sudo chown -R \$(id -u hermes):\$(id -g hermes) /new/data/path"
-echo "   sudo chmod -R 755 /new/data/path"
+echo "   # If changing data or temp directory, also update ownership:"
+echo "   sudo chown -R \$(id -u hermes):\$(id -g hermes) /new/directory/path"
+echo "   sudo chmod -R 755 /new/directory/path"
 echo
 echo "⚠️  Security Notes:"
 echo "   - Environment file is secured with 600 permissions"

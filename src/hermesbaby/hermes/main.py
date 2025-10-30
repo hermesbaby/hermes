@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     base_directory: str  # Required field with no default
     # Optional API token for securing PUT requests
     api_token: Optional[str] = None
+    # Optional temporary directory for uploaded files (defaults to base_directory if not set)
+    temp_directory: Optional[str] = None
 
     model_config = {
         "env_prefix": "HERMES_",
@@ -197,6 +199,21 @@ async def extract_archive(
                 detail=f"Base directory is not writable: {settings.base_directory}. Please check directory permissions."
             )
 
+        # Validate that the temp directory exists and is writable
+        temp_dir = settings.temp_directory or settings.base_directory
+        temp_path = pathlib.Path(temp_dir)
+        if not temp_path.exists():
+            raise HTTPException(
+                status_code=500,
+                detail=f"Temporary directory does not exist: {temp_dir}. Please ensure the directory is properly mounted and accessible."
+            )
+
+        if not os.access(temp_path, os.W_OK):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Temporary directory is not writable: {temp_dir}. Please check directory permissions."
+            )
+
         # Remove existing content if the path exists
         if full_path.exists():
             if full_path.is_file():
@@ -222,7 +239,9 @@ async def extract_archive(
         temp_suffix = suffix_map.get(archive_type, ".tmp")
 
         # Create a temporary file to save the uploaded archive
-        with tempfile.NamedTemporaryFile(delete=False, suffix=temp_suffix) as temp_file:
+        # Use the configured temp directory or fall back to base directory to avoid container /tmp space issues
+        temp_dir = settings.temp_directory or settings.base_directory
+        with tempfile.NamedTemporaryFile(delete=False, suffix=temp_suffix, dir=temp_dir) as temp_file:
             # Read and write the uploaded file content
             content = await file.read()
             temp_file.write(content)

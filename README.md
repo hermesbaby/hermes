@@ -184,6 +184,7 @@ The service runs on port 8000 by default and **requires** the `HERMES_BASE_DIREC
 #### Optional Environment Variables
 
 - **`HERMES_API_TOKEN`**: **Optional**. API token for securing PUT requests. When set, all PUT requests must include a valid token via `Authorization: Bearer <token>` or `X-API-Token: <token>` header. Health endpoint remains unprotected.
+- **`HERMES_TEMP_DIRECTORY`**: **Optional**. Directory for temporary files during archive processing. If not set, uses `HERMES_BASE_DIRECTORY`. Useful in containerized environments to avoid `/tmp` space issues by using a mounted volume with sufficient space.
 
 #### Systemd Service Environment Variables
 
@@ -221,6 +222,7 @@ docker run -e HERMES_BASE_DIRECTORY="/var/hermes" -p 3000:8000 docker.cloudsmith
 docker run \
   -e HERMES_BASE_DIRECTORY="/data/extractions" \
   -e HERMES_API_TOKEN="secure-token-123" \
+  -e HERMES_TEMP_DIRECTORY="/data/temp" \
   -e PYTHONUNBUFFERED=1 \
   -p 8000:8000 \
   docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
@@ -614,6 +616,8 @@ echo "Update completed successfully!"
 
 #### Optional Variables
 
+- **`HERMES_API_TOKEN`**: API token for securing PUT requests
+- **`HERMES_TEMP_DIRECTORY`**: Temporary directory for uploaded files during processing (defaults to `HERMES_BASE_DIRECTORY`)
 - `PYTHONUNBUFFERED=1`: Ensures Python output is not buffered
 - `PYTHONDONTWRITEBYTECODE=1`: Prevents Python from writing .pyc files
 
