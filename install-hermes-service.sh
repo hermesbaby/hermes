@@ -7,6 +7,7 @@
 #   HERMES_API_TOKEN  - Custom API token (generated if not provided)
 #   HERMES_DATA_DIR   - Custom data directory (defaults to /var/www/html)
 #   HERMES_TEMP_DIR   - Custom temporary directory (defaults to HERMES_DATA_DIR)
+#   HERMES_URL_REGEX  - Optional regex restricting allowed request URLs (passed through to container)
 #
 # Usage Examples:
 #   sudo ./install-hermes-service.sh
@@ -70,6 +71,7 @@ ENV_DIR="/etc/hermes"
 ENV_FILE="${ENV_DIR}/hermes.env"
 DATA_DIR="${HERMES_DATA_DIR:-/var/www/html}"
 TEMP_DIR="${HERMES_TEMP_DIR:-$DATA_DIR}"
+URL_REGEX="${HERMES_URL_REGEX:-}"
 SYSTEM_USER="hermes"
 
 # Generate API token if not provided
@@ -95,6 +97,12 @@ else
     print_step "Using custom temporary directory: $TEMP_DIR"
 fi
 
+if [ -n "$URL_REGEX" ]; then
+    print_step "Using URL allowlist regex: $URL_REGEX"
+else
+    print_step "No URL allowlist regex configured (HERMES_URL_REGEX not set)"
+fi
+
 # Create environment directory
 print_step "Creating environment directory..."
 mkdir -p "$ENV_DIR"
@@ -108,6 +116,7 @@ cat > "$ENV_FILE" << EOF
 HERMES_API_TOKEN=$HERMES_API_TOKEN
 HERMES_DATA_DIR=$DATA_DIR
 HERMES_TEMP_DIR=$TEMP_DIR
+HERMES_URL_REGEX=$URL_REGEX
 EOF
 
 # Secure the environment file
@@ -154,6 +163,7 @@ ExecStart=$CONTAINER_COMMAND run -d \\
     -e HERMES_BASE_DIRECTORY="/www-root" \\
     -e HERMES_TEMP_DIRECTORY="/temp-root" \\
     -e HERMES_API_TOKEN="\${HERMES_API_TOKEN}" \\
+    -e HERMES_URL_REGEX="\${HERMES_URL_REGEX}" \\
     -p 8000:8000 \\
     --restart unless-stopped \\
     docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
@@ -191,6 +201,7 @@ ExecStart=$CONTAINER_COMMAND run -d \\
     -e HERMES_API_TOKEN="\${HERMES_API_TOKEN}" \\
     -p 8000:8000 \\
     --restart unless-stopped \\
+    -e HERMES_URL_REGEX="\${HERMES_URL_REGEX}" \\
     docker.cloudsmith.io/hermesbaby/hermes/hermes:latest
 ExecStop=$CONTAINER_COMMAND stop $SERVICE_NAME
 ExecStopPost=$CONTAINER_COMMAND rm $SERVICE_NAME
@@ -249,6 +260,7 @@ echo "   Service file: $SERVICE_FILE"
 echo "   Environment file: $ENV_FILE"
 echo "   Data directory: $DATA_DIR"
 echo "   Temp directory: $TEMP_DIR"
+echo "   URL regex: ${URL_REGEX:-<none>}"
 echo "   API endpoint: http://localhost:8000"
 echo
 echo "🔑 Your API token: $HERMES_API_TOKEN"
@@ -274,7 +286,7 @@ echo "     -H \"Authorization: Bearer $HERMES_API_TOKEN\" \\"
 echo "     http://localhost:8000/test/upload"
 echo
 echo "🔧 Additional Management:"
-echo "   # View configuration (API token, data directory, and temp directory)"
+echo "   # View configuration (API token, data directory, temp directory, URL regex)"
 echo "   sudo cat /etc/hermes/hermes.env"
 echo "   # Update container image"
 echo "   sudo $CONTAINER_COMMAND pull docker.cloudsmith.io/hermesbaby/hermes/hermes:latest"

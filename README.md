@@ -189,6 +189,7 @@ The service runs on port 8000 by default and **requires** the `HERMES_BASE_DIREC
 
 - **`HERMES_API_TOKEN`**: **Optional**. API token for securing PUT requests. When set, all PUT requests must include a valid token via `Authorization: Bearer <token>` or `X-API-Token: <token>` header. Health endpoint remains unprotected.
 - **`HERMES_TEMP_DIRECTORY`**: **Optional**. Directory for temporary files during archive processing. If not set, uses `HERMES_BASE_DIRECTORY`. Useful in containerized environments to avoid `/tmp` space issues by using a mounted volume with sufficient space.
+- **`HERMES_URL_REGEX`**: **Optional**. Regular expression (matched against the full request path, including leading `/`) that allowlists which URLs can be used for PUT and DELETE. Requests to paths that do not match return `403 Forbidden`. Invalid patterns fail startup. Example: `^/projects/(?:[^/]+/){3,}.*$` requires at least three subdirectories under `/projects`.
 
 #### Systemd Service Environment Variables
 

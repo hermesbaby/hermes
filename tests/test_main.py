@@ -917,6 +917,82 @@ class TestApiTokenSecurity:
             assert test_settings.api_token == "custom-env-token"
 
 
+class TestUrlRegexRestrictions:
+    """Test URL allowlist enforced via HERMES_URL_REGEX"""
+
+    URL_REGEX = r"^/projects/(?:[^/]+/){3,}.*$"
+
+    def _reload_with_regex(self):
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_URL_REGEX": self.URL_REGEX
+        }, clear=True):
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            return main_module
+
+    def _reset_default(self):
+        with patch.dict(os.environ, {"HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY}, clear=True):
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+
+    def test_put_rejected_when_url_not_allowed(self):
+        main_module = self._reload_with_regex()
+        test_client = TestClient(main_module.app)
+
+        test_files = {"test.txt": "content"}
+        tarball_content = create_test_tarball(test_files)
+        files = {"file": ("test.tar.gz", io.BytesIO(
+            tarball_content), "application/gzip")}
+
+        response = test_client.put("/other/path", files=files)
+        assert response.status_code == 403
+        assert "not permitted" in response.json()["detail"].lower()
+
+        self._reset_default()
+
+    def test_put_allowed_when_regex_matches(self):
+        main_module = self._reload_with_regex()
+        test_client = TestClient(main_module.app)
+
+        test_files = {"test.txt": "content"}
+        tarball_content = create_test_tarball(test_files)
+        files = {"file": ("test.tar.gz", io.BytesIO(
+            tarball_content), "application/gzip")}
+
+        response = test_client.put("/projects/a/b/c/d", files=files)
+        assert response.status_code == 200
+        data = response.json()
+        created_path = pathlib.Path(data["created_path"])
+
+        if created_path.exists():
+            shutil.rmtree(created_path)
+
+        self._reset_default()
+
+    def test_delete_rejected_when_url_not_allowed(self):
+        main_module = self._reload_with_regex()
+        test_client = TestClient(main_module.app)
+
+        # Prepare a directory that would normally be deletable
+        base_path = pathlib.Path(TEST_BASE_DIRECTORY)
+        target = base_path / "other" / "path"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "file.txt").write_text("content")
+
+        response = test_client.delete("/other/path")
+        assert response.status_code == 403
+        assert "not permitted" in response.json()["detail"].lower()
+
+        # Cleanup residue
+        if target.exists():
+            shutil.rmtree(target)
+
+        self._reset_default()
+
+
 @pytest.mark.parametrize("endpoint", [
     "/",
     "/test",

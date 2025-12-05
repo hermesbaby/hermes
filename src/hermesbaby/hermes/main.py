@@ -7,6 +7,7 @@ import tarfile
 import zipfile
 import shutil
 import tempfile
+import re
 from typing import Optional, Annotated, Tuple, List
 from pydantic_settings import BaseSettings
 import py7zr
@@ -21,6 +22,8 @@ class Settings(BaseSettings):
     api_token: Optional[str] = None
     # Optional temporary directory for uploaded files (defaults to base_directory if not set)
     temp_directory: Optional[str] = None
+    # Optional regex restricting allowed request URL paths
+    url_regex: Optional[str] = None
 
     model_config = {
         "env_prefix": "HERMES_",
@@ -31,10 +34,30 @@ class Settings(BaseSettings):
 # Initialize settings - this will raise an error if HERMES_BASE_DIRECTORY is not set
 settings = Settings()
 
+# Compile the optional URL restriction regex at startup to fail fast on misconfiguration
+try:
+    url_pattern = re.compile(
+        settings.url_regex) if settings.url_regex else None
+except re.error as e:
+    raise RuntimeError(f"Invalid HERMES_URL_REGEX: {str(e)}")
+
 app = FastAPI(title="Hermes API", version=__version__)
 
 # Security scheme for API token
 security = HTTPBearer(auto_error=False)
+
+
+def ensure_path_allowed(path: str) -> None:
+    """Validate request path against configured HERMES_URL_REGEX if present"""
+    if not url_pattern:
+        return
+
+    request_path = f"/{path.lstrip('/')}"
+    if not url_pattern.match(request_path):
+        raise HTTPException(
+            status_code=403,
+            detail=f"URL '{request_path}' not permitted by HERMES_URL_REGEX"
+        )
 
 
 def get_archive_type(filename: str) -> str:
@@ -174,6 +197,7 @@ async def extract_archive(
 ):
     """Accept PUT requests with archive files (tar.gz, .tgz, .zip, .7z) and extract them to the specified path"""
     try:
+        ensure_path_allowed(path)
         # Determine archive type and validate
         archive_type = get_archive_type(file.filename)
         if archive_type == "unknown":
@@ -298,6 +322,7 @@ async def delete_path(
 ):
     """Handle DELETE requests to remove files or directories under the base directory"""
     try:
+        ensure_path_allowed(path)
         # Require a non-empty path to avoid deleting the entire base directory
         if not path.strip("/"):
             raise HTTPException(
