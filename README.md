@@ -1,6 +1,6 @@
 # HermesBaby-Hermes
 
-**Hermes** is a lightweight FastAPI service that acts as a universal PUT endpoint for archive file extraction. It accepts PUT requests with archive files (tar.gz, ZIP, 7z) to any endpoint path, creates the corresponding directory structure on the local filesystem, and extracts the archive contents with their internal directory structure, making it useful for dynamic file system provisioning, deployment, and development workflows.
+**Hermes** is a lightweight FastAPI service that acts as a universal PUT endpoint for archive file extraction and a matching DELETE endpoint for cleanup. It accepts PUT requests with archive files (tar.gz, ZIP, 7z) to any endpoint path, creates the corresponding directory structure on the local filesystem, and extracts the archive contents with their internal directory structure, making it useful for dynamic file system provisioning, deployment, and development workflows. DELETE requests remove previously created files or directories under the same base directory.
 
 ## What This Docker Image Does
 
@@ -15,6 +15,7 @@ The Hermes Docker image provides:
 ### Key Features
 
 - 🌐 **Catch-all PUT endpoints**: Any PUT request with archive file to `/path/to/anything` creates directory structure and extracts archive contents
+- 🧹 **Catch-all DELETE cleanup**: Any DELETE request to `/path/to/anything` removes the corresponding directory or file tree under the base directory
 - � **Multiple Archive Formats**: Supports tar.gz, .tgz, ZIP (.zip), and 7z (.7z) archive formats
 - �📁 **Filesystem Integration**: Creates actual directories on the local filesystem under a configured base directory and extracts archive contents
 - 🔄 **Content Replacement**: Automatically removes existing content at target path before extraction to ensure clean deployment
@@ -72,6 +73,9 @@ curl -X PUT -F "file=@test.zip" http://localhost:8000/test/upload-zip
 echo "Hello from 7z" > test.txt
 7z a test.7z test.txt
 curl -X PUT -F "file=@test.7z" http://localhost:8000/test/upload-7z
+
+# Delete previously uploaded content
+curl -X DELETE http://localhost:8000/test/upload
 
 # If token is configured, use authentication:
 # curl -X PUT -F "file=@test.tar.gz" -H "Authorization: Bearer your-token" http://localhost:8000/test/upload
@@ -344,6 +348,34 @@ curl -X PUT -F "file=@backup.7z" http://localhost:8000/backups/daily-7z
 - **Security Filtering**: Archives with absolute paths (`/etc/passwd`) or directory traversal (`../`) are rejected for all formats
 - **Automatic Cleanup**: Temporary files are automatically cleaned up after extraction
 - **Response Enhancement**: Returns archive type, total extracted paths count, and other metadata
+
+### Universal DELETE Cleanup
+
+```http
+DELETE /{any_path}
+Authorization: Bearer <token>  # Required if HERMES_API_TOKEN is set
+# OR
+X-API-Token: <token>
+```
+
+**Behavior:**
+- Removes files or directories under the configured `HERMES_BASE_DIRECTORY` that were previously created via PUT
+- Rejects attempts to delete the base directory itself (DELETE `/` returns 400)
+- Returns 404 when the target path does not exist
+- Protected by the same optional token mechanism as PUT
+
+**Example:**
+
+```bash
+curl -X DELETE http://localhost:8000/deployments/webapp
+# Returns: {
+#   "endpoint": "/deployments/webapp",
+#   "method": "DELETE",
+#   "deleted_path": "/app/data/deployments/webapp",
+#   "status": "deleted",
+#   "deleted_type": "directory"
+# }
+```
 
 ### API Documentation
 

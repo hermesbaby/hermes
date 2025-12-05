@@ -531,6 +531,109 @@ class TestPutArchiveEndpoints:
         assert response.status_code == 422  # FastAPI validation error
 
 
+class TestDeleteEndpoints:
+    """Test DELETE endpoints that remove extracted content"""
+
+    def test_delete_existing_directory(self):
+        """PUT creates directory, DELETE removes it"""
+        test_files = {"test.txt": "to be deleted"}
+        tarball_content = create_test_tarball(test_files)
+
+        files = {"file": ("delete-me.tar.gz",
+                          io.BytesIO(tarball_content), "application/gzip")}
+        put_response = client.put("/delete-me", files=files)
+        assert put_response.status_code == 200
+
+        delete_response = client.delete("/delete-me")
+        assert delete_response.status_code == 200
+        data = delete_response.json()
+        assert data["status"] == "deleted"
+        assert data["deleted_type"] == "directory"
+
+        target_path = pathlib.Path(TEST_BASE_DIRECTORY) / "delete-me"
+        assert not target_path.exists()
+
+    def test_delete_single_file(self):
+        """DELETE removes an individual file under the base directory"""
+        base_path = pathlib.Path(TEST_BASE_DIRECTORY)
+        base_path.mkdir(parents=True, exist_ok=True)
+
+        file_path = base_path / "single-file.txt"
+        file_path.write_text("hello")
+
+        response = client.delete("/single-file.txt")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted_type"] == "file"
+        assert not file_path.exists()
+
+    def test_delete_missing_path_returns_404(self):
+        """DELETE returns 404 when target path does not exist"""
+        response = client.delete("/does-not-exist")
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_delete_root_path_rejected(self):
+        """DELETE to root path is rejected to protect base directory"""
+        response = client.delete("/")
+        assert response.status_code == 400
+        assert "base directory" in response.json()["detail"].lower()
+
+    def test_delete_requires_token_when_configured(self):
+        """DELETE is protected by API token when configured"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            secured_client = TestClient(main_module.app)
+
+            target_dir = pathlib.Path(TEST_BASE_DIRECTORY) / "secure-delete"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "file.txt").write_text("secure")
+
+            response = secured_client.delete("/secure-delete")
+            assert response.status_code == 401
+            assert response.headers.get("WWW-Authenticate") == "Bearer"
+
+            # Cleanup to keep filesystem tidy for other tests
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+
+            # Reset module state to default (no token) for subsequent tests
+            main_module.settings.api_token = None
+
+    def test_delete_with_valid_token(self):
+        """DELETE succeeds with valid Bearer token"""
+        with patch.dict(os.environ, {
+            "HERMES_BASE_DIRECTORY": TEST_BASE_DIRECTORY,
+            "HERMES_API_TOKEN": TEST_API_TOKEN
+        }, clear=True):
+            pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
+                parents=True, exist_ok=True)
+
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            secured_client = TestClient(main_module.app)
+
+            target_dir = pathlib.Path(TEST_BASE_DIRECTORY) / "auth-delete"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "file.txt").write_text("secure")
+
+            headers = {"Authorization": f"Bearer {TEST_API_TOKEN}"}
+            response = secured_client.delete("/auth-delete", headers=headers)
+            assert response.status_code == 200
+            assert response.json()["status"] == "deleted"
+            assert not target_dir.exists()
+
+            # Reset module state to default (no token) for subsequent tests
+            main_module.settings.api_token = None
+
+
 class TestOtherHttpMethods:
     """Test that other HTTP methods don't interfere with PUT endpoints"""
 
@@ -545,9 +648,9 @@ class TestOtherHttpMethods:
         assert response.status_code == 405
 
     def test_delete_undefined_endpoint_fails(self):
-        """Test DELETE request to endpoint with PUT handler returns 405 Method Not Allowed"""
+        """Test DELETE request to undefined path returns 404 Not Found"""
         response = client.delete("/undefined")
-        assert response.status_code == 405
+        assert response.status_code == 404
 
     def test_patch_undefined_endpoint_fails(self):
         """Test PATCH request to endpoint with PUT handler returns 405 Method Not Allowed"""
@@ -586,8 +689,9 @@ class TestApiTokenSecurity:
             pathlib.Path(TEST_BASE_DIRECTORY).mkdir(
                 parents=True, exist_ok=True)
 
-            from hermesbaby.hermes.main import app
-            test_client = TestClient(app)
+            import hermesbaby.hermes.main as main_module
+            importlib.reload(main_module)
+            test_client = TestClient(main_module.app)
 
             test_files = {"test.txt": "No token required"}
             tarball_content = create_test_tarball(test_files)

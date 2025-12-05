@@ -289,3 +289,73 @@ async def extract_archive(
             status_code=500,
             detail=f"Failed to extract archive: {str(e)}"
         )
+
+
+@app.delete("/{path:path}")
+async def delete_path(
+    path: str,
+    _: None = Depends(verify_api_token)
+):
+    """Handle DELETE requests to remove files or directories under the base directory"""
+    try:
+        # Require a non-empty path to avoid deleting the entire base directory
+        if not path.strip("/"):
+            raise HTTPException(
+                status_code=400,
+                detail="Path is required for DELETE and cannot be the base directory"
+            )
+
+        # Resolve base and target paths for safety
+        base_path = pathlib.Path(settings.base_directory).resolve()
+        target_path = (base_path / path.lstrip('/')).resolve()
+
+        # Ensure target path stays within the configured base directory
+        if base_path != target_path and base_path not in target_path.parents:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid path: must reside within the configured base directory"
+            )
+
+        # Validate base directory exists and is writable
+        if not base_path.exists():
+            raise HTTPException(
+                status_code=500,
+                detail=f"Base directory does not exist: {settings.base_directory}. Please ensure the directory is properly mounted and accessible."
+            )
+
+        if not os.access(base_path, os.W_OK):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Base directory is not writable: {settings.base_directory}. Please check directory permissions."
+            )
+
+        # Return 404 when the target does not exist
+        if not target_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Path not found: /{path}"
+            )
+
+        # Remove the target path (file or directory)
+        deleted_type = "directory" if target_path.is_dir() else "file"
+
+        if target_path.is_dir():
+            shutil.rmtree(target_path)
+        else:
+            target_path.unlink()
+
+        return {
+            "endpoint": f"/{path}",
+            "method": "DELETE",
+            "deleted_path": str(target_path),
+            "status": "deleted",
+            "deleted_type": deleted_type
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete path: {str(e)}"
+        )
