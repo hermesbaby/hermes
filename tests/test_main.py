@@ -633,6 +633,165 @@ class TestDeleteEndpoints:
             # Reset module state to default (no token) for subsequent tests
             main_module.settings.api_token = None
 
+    def test_delete_removes_empty_parent_directories(self):
+        """DELETE removes empty parent directories up to base"""
+        # Create a deep nested structure
+        base_path = pathlib.Path(TEST_BASE_DIRECTORY)
+        nested_path = base_path / "root" / "some-project" / "some-repo" / "some" / "branch"
+        nested_path.mkdir(parents=True, exist_ok=True)
+        (nested_path / "file.txt").write_text("content")
+
+        # Delete the nested path
+        response = client.delete("/root/some-project/some-repo/some/branch")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "deleted"
+        assert data["deleted_type"] == "directory"
+
+        # Verify the target directory was removed
+        assert not nested_path.exists()
+
+        # Verify all empty parent directories were removed
+        assert not (base_path / "root" / "some-project" / "some-repo" / "some").exists()
+        assert not (base_path / "root" / "some-project" / "some-repo").exists()
+        assert not (base_path / "root" / "some-project").exists()
+        assert not (base_path / "root").exists()
+
+        # Verify base directory still exists
+        assert base_path.exists()
+
+        # Check that removed_empty_parents is in response
+        if "removed_empty_parents" in data:
+            assert len(data["removed_empty_parents"]) > 0
+
+    def test_delete_stops_at_non_empty_parent(self):
+        """DELETE stops removing parents when it encounters non-empty directory"""
+        base_path = pathlib.Path(TEST_BASE_DIRECTORY)
+        
+        # Create two sibling directories
+        sibling1 = base_path / "parent" / "child1"
+        sibling2 = base_path / "parent" / "child2"
+        sibling1.mkdir(parents=True, exist_ok=True)
+        sibling2.mkdir(parents=True, exist_ok=True)
+        (sibling1 / "file1.txt").write_text("content1")
+        (sibling2 / "file2.txt").write_text("content2")
+
+        # Delete one sibling
+        response = client.delete("/parent/child1")
+        assert response.status_code == 200
+
+        # Verify child1 is removed
+        assert not sibling1.exists()
+
+        # Verify parent still exists (because child2 is still there)
+        assert (base_path / "parent").exists()
+        assert sibling2.exists()
+
+        # Cleanup
+        shutil.rmtree(base_path / "parent")
+
+    def test_delete_deeply_nested_with_multiple_levels(self):
+        """DELETE removes deeply nested empty directories"""
+        base_path = pathlib.Path(TEST_BASE_DIRECTORY)
+        
+        # Create very deep nesting
+        deep_path = base_path / "level1" / "level2" / "level3" / "level4" / "level5"
+        deep_path.mkdir(parents=True, exist_ok=True)
+        (deep_path / "deep_file.txt").write_text("deep content")
+
+        # Delete the deepest directory
+        response = client.delete("/level1/level2/level3/level4/level5")
+        assert response.status_code == 200
+
+        # Verify all levels are removed
+        assert not deep_path.exists()
+        assert not (base_path / "level1" / "level2" / "level3" / "level4").exists()
+        assert not (base_path / "level1" / "level2" / "level3").exists()
+        assert not (base_path / "level1" / "level2").exists()
+        assert not (base_path / "level1").exists()
+
+        # Verify base directory still exists
+        assert base_path.exists()
+
+    def test_delete_single_file_removes_empty_parent_dirs(self):
+        """DELETE of a single file also removes empty parent directories"""
+        base_path = pathlib.Path(TEST_BASE_DIRECTORY)
+        
+        # Create nested structure with a single file
+        nested_dir = base_path / "folder1" / "folder2" / "folder3"
+        nested_dir.mkdir(parents=True, exist_ok=True)
+        file_path = nested_dir / "single_file.txt"
+        file_path.write_text("content")
+
+        # Delete the file
+        response = client.delete("/folder1/folder2/folder3/single_file.txt")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted_type"] == "file"
+
+        # Verify file is removed
+        assert not file_path.exists()
+
+        # Verify all empty parent directories are removed
+        assert not nested_dir.exists()
+        assert not (base_path / "folder1" / "folder2").exists()
+        assert not (base_path / "folder1").exists()
+
+        # Verify base directory still exists
+        assert base_path.exists()
+
+    def test_delete_protects_base_directory(self):
+        """DELETE never removes the base directory itself"""
+        base_path = pathlib.Path(TEST_BASE_DIRECTORY)
+        
+        # Create a single directory at root level
+        single_dir = base_path / "only-child"
+        single_dir.mkdir(parents=True, exist_ok=True)
+        (single_dir / "file.txt").write_text("content")
+
+        # Delete the directory
+        response = client.delete("/only-child")
+        assert response.status_code == 200
+
+        # Verify the directory is removed
+        assert not single_dir.exists()
+
+        # Verify base directory STILL EXISTS
+        assert base_path.exists()
+
+    def test_delete_with_mixed_content_in_tree(self):
+        """DELETE with some parents having siblings stops at the right level"""
+        base_path = pathlib.Path(TEST_BASE_DIRECTORY)
+        
+        # Create complex structure:
+        # /a/b/c/target  <- delete this
+        # /a/b/sibling   <- this keeps /a/b alive
+        # /a should also remain
+        structure = base_path / "a" / "b"
+        target = structure / "c" / "target"
+        sibling = structure / "sibling"
+        
+        target.mkdir(parents=True, exist_ok=True)
+        sibling.mkdir(parents=True, exist_ok=True)
+        (target / "file.txt").write_text("target content")
+        (sibling / "file.txt").write_text("sibling content")
+
+        # Delete the target
+        response = client.delete("/a/b/c/target")
+        assert response.status_code == 200
+
+        # Verify target and its parent 'c' are removed
+        assert not target.exists()
+        assert not (structure / "c").exists()
+
+        # Verify 'b' and 'a' still exist (because 'sibling' exists)
+        assert structure.exists()
+        assert (base_path / "a").exists()
+        assert sibling.exists()
+
+        # Cleanup
+        shutil.rmtree(base_path / "a")
+
 
 class TestOtherHttpMethods:
     """Test that other HTTP methods don't interfere with PUT endpoints"""

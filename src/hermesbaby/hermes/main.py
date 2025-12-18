@@ -94,6 +94,47 @@ def validate_archive_paths(paths: List[str], archive_type: str) -> None:
             )
 
 
+def remove_empty_parent_directories(target_path: pathlib.Path, base_path: pathlib.Path) -> List[str]:
+    """
+    Remove empty parent directories from target up to (but not including) base.
+    
+    Walks up from the target path's parent directory, removing empty directories
+    until it encounters a non-empty directory or reaches the base directory.
+    
+    Args:
+        target_path: The path that was just deleted
+        base_path: The base directory (will not be deleted)
+    
+    Returns:
+        List of directory paths that were removed
+    """
+    removed_dirs = []
+    current = target_path.parent
+    
+    # Walk up the directory tree
+    while current != base_path and base_path in current.parents:
+        # Check if directory is empty
+        try:
+            if current.exists() and current.is_dir():
+                # Check if directory has any contents
+                if not any(current.iterdir()):
+                    # Directory is empty, safe to remove
+                    current.rmdir()
+                    removed_dirs.append(str(current))
+                    current = current.parent
+                else:
+                    # Directory has contents, stop here
+                    break
+            else:
+                # Directory doesn't exist or isn't a directory, stop
+                break
+        except (PermissionError, OSError):
+            # If we can't remove or check the directory, stop trying
+            break
+    
+    return removed_dirs
+
+
 def extract_tar_gz(temp_file_path: str, extract_path: pathlib.Path) -> List[str]:
     """Extract tar.gz archive and return list of extracted items"""
     extracted_items = []
@@ -369,13 +410,22 @@ async def delete_path(
         else:
             target_path.unlink()
 
-        return {
+        # Remove empty parent directories up to the base directory
+        removed_parent_dirs = remove_empty_parent_directories(target_path, base_path)
+
+        response_data = {
             "endpoint": f"/{path}",
             "method": "DELETE",
             "deleted_path": str(target_path),
             "status": "deleted",
             "deleted_type": deleted_type
         }
+        
+        # Include information about removed parent directories if any
+        if removed_parent_dirs:
+            response_data["removed_empty_parents"] = removed_parent_dirs
+        
+        return response_data
 
     except HTTPException:
         raise
